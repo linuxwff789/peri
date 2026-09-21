@@ -101,6 +101,20 @@ fn stored_models_reads_extra_list() {
 }
 
 #[test]
+fn env_model_picks_by_provider_type() {
+    let map: HashMap<&str, &str> = [("OPENAI_MODEL", "bai/glm-5.3-flash"), ("ANTHROPIC_MODEL", "claude-x")]
+        .into_iter()
+        .collect();
+    let get = |key: &str| map.get(key).map(|value| value.to_string());
+    assert_eq!(
+        env_model("openai", get).as_deref(),
+        Some("bai/glm-5.3-flash")
+    );
+    assert_eq!(env_model("anthropic", get).as_deref(), Some("claude-x"));
+    assert_eq!(env_model("openai", |_| None), None);
+}
+
+#[test]
 fn apply_models_fills_extra_and_empty_tiers_only() {
     let mut cfg = PeriConfig {
         schema: None,
@@ -118,7 +132,7 @@ fn apply_models_fills_extra_and_empty_tiers_only() {
         },
     };
     let models = vec!["m1".to_string(), "m2".to_string()];
-    assert!(apply_models_to_config(&mut cfg, "gproxy", &models));
+    assert!(apply_models_to_config(&mut cfg, "gproxy", &models, None));
     let provider = &cfg.config.providers[0];
     assert_eq!(stored_models(provider), models);
     assert_eq!(provider.models.opus, "keep-me");
@@ -126,7 +140,51 @@ fn apply_models_fills_extra_and_empty_tiers_only() {
     assert_eq!(provider.models.sonnet, "m1");
     assert_eq!(provider.models.haiku, "m1");
     // 幂等：同样的列表再来一次不再算变化
-    assert!(!apply_models_to_config(&mut cfg, "gproxy", &models));
+    assert!(!apply_models_to_config(&mut cfg, "gproxy", &models, None));
     // 未知 provider 不报错也不变
-    assert!(!apply_models_to_config(&mut cfg, "ghost", &models));
+    assert!(!apply_models_to_config(&mut cfg, "ghost", &models, None));
+}
+
+#[test]
+fn apply_models_prefers_env_model_when_present() {
+    let mut cfg = PeriConfig {
+        schema: None,
+        config: AppConfig {
+            providers: vec![ProviderConfig {
+                id: "gproxy".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    };
+    let models = vec![
+        "bai/claude-fable-5".to_string(),
+        "bai/glm-5.3-flash".to_string(),
+    ];
+    // env 在用的模型在列表里 → 用它占位，不用列表第一个
+    assert!(apply_models_to_config(
+        &mut cfg,
+        "gproxy",
+        &models,
+        Some("bai/glm-5.3-flash")
+    ));
+    assert_eq!(cfg.config.providers[0].models.opus, "bai/glm-5.3-flash");
+    // env 模型不在列表里 → 退回列表第一个
+    let mut cfg2 = PeriConfig {
+        schema: None,
+        config: AppConfig {
+            providers: vec![ProviderConfig {
+                id: "gproxy".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    };
+    assert!(apply_models_to_config(
+        &mut cfg2,
+        "gproxy",
+        &models,
+        Some("not-in-list")
+    ));
+    assert_eq!(cfg2.config.providers[0].models.opus, "bai/claude-fable-5");
 }

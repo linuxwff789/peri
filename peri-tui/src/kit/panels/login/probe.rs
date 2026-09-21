@@ -108,6 +108,23 @@ pub(crate) fn env_api_key(
         .filter(|value| !value.is_empty())
 }
 
+/// 从 env 读 provider 对应的默认模型（`OPENAI_MODEL` / `ANTHROPIC_MODEL`）。
+///
+/// 探测后拿它做档位占位——不会把用户当前在用的模型悄悄换掉。
+pub(crate) fn env_model(
+    provider_type: &str,
+    get: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let var = if provider_type == "anthropic" {
+        "ANTHROPIC_MODEL"
+    } else {
+        "OPENAI_MODEL"
+    };
+    get(var)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 /// 表单填的 key 优先；空则回退 env。
 pub(crate) fn resolve_api_key(provider_type: &str, configured: &str) -> String {
     let configured = configured.trim();
@@ -135,11 +152,13 @@ pub(crate) fn stored_models(provider: &ProviderConfig) -> Vec<String> {
 }
 
 /// 把探测到的模型写进配置（纯函数）：`extra["models_list"]` + 四个档位全空时用
-/// 第一个模型占位（否则 `from_config` 解析不出模型，ACP 会拒）。返回是否有变化。
+/// `preferred`（env 里正在用的模型，必须在列表内）或列表第一个模型占位——
+/// 否则 `from_config` 解析不出模型，ACP 会拒。返回是否有变化。
 pub(crate) fn apply_models_to_config(
     cfg: &mut PeriConfig,
     provider_id: &str,
     models: &[String],
+    preferred: Option<&str>,
 ) -> bool {
     let Some(provider) = cfg
         .config
@@ -155,23 +174,25 @@ pub(crate) fn apply_models_to_config(
         provider.extra.insert(MODELS_EXTRA_KEY.to_string(), value);
         changed = true;
     }
-    if let Some(first) = models.first()
-        && !first.is_empty()
-    {
+    let placeholder = preferred
+        .filter(|model| models.iter().any(|item| item == model))
+        .or_else(|| models.first().map(String::as_str))
+        .unwrap_or("");
+    if !placeholder.is_empty() {
         if provider.models.fable.trim().is_empty() {
-            provider.models.fable = first.clone();
+            provider.models.fable = placeholder.to_string();
             changed = true;
         }
         if provider.models.opus.trim().is_empty() {
-            provider.models.opus = first.clone();
+            provider.models.opus = placeholder.to_string();
             changed = true;
         }
         if provider.models.sonnet.trim().is_empty() {
-            provider.models.sonnet = first.clone();
+            provider.models.sonnet = placeholder.to_string();
             changed = true;
         }
         if provider.models.haiku.trim().is_empty() {
-            provider.models.haiku = first.clone();
+            provider.models.haiku = placeholder.to_string();
             changed = true;
         }
     }
@@ -267,7 +288,7 @@ pub(crate) fn spawn_probe(
         };
         match result {
             Ok(models) => {
-                commit_models(&provider_id, &normalized, &api_key, &models);
+                commit_models(&provider_id, &normalized, &api_key, &provider_type, &models);
                 set_probe_status(&provider_id, ProbeStatus::Done(models.len()));
             }
             Err(error) => {
@@ -283,11 +304,23 @@ pub(crate) fn spawn_probe(
 ///
 /// `LlmProvider::from_config_for_alias` 要求 `api_key` 非空，所以探测用的 env key
 /// 成功时也写回配置——否则 provider 仍然不可用（ACP 会拒 "no usable provider"）。
-fn commit_models(provider_id: &str, base_url: &str, api_key: &str, models: &[String]) {
+fn commit_models(
+    provider_id: &str,
+    base_url: &str,
+    api_key: &str,
+    provider_type: &str,
+    models: &[String],
+) {
+    let preferred = env_model(provider_type, |key| std::env::var(key).ok());
     if let Some(handle) = PERI_CONFIG_HANDLE.get() {
         let (snap, changed) = {
             let mut cfg = handle.write();
-            let mut changed = apply_models_to_config(&mut cfg, provider_id, models);
+            let mut changed = apply_models_to_config(
+                &mut cfg,
+                provider_id,
+                models,
+                preferred.as_deref(),
+            );
             if let Some(provider) = cfg.config.providers.iter_mut().find(|p| p.id == provider_id) {
                 if !base_url.is_empty() && provider.base_url != base_url {
                     provider.base_url = base_url.to_string();
