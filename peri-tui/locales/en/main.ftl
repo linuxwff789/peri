@@ -250,6 +250,13 @@ login-confirm-delete = :Confirm delete
 login-confirm-delete-warning =   This action cannot be undone.
 login-confirm = Confirm
 login-model-label = Model
+login-probe-loading = ⏳ probing endpoint…
+login-probe-done = ✓ { $count } models found
+login-probe-failed = ⚠ probe failed: { $error }
+login-probe-no-url = base URL is empty
+login-base-url-normalized = Base URL normalized: { $url }
+login-base-url-hint = enter the endpoint base, e.g. http://host:8787 (paths like /chat/completions are stripped)
+login-api-key-from-env = API key taken from environment
 
 # ---- HITL Popup ----
 
@@ -311,6 +318,7 @@ hint-login-edit = :Edit
 hint-login-new = :New
 hint-login-delete = :Delete
 hint-login-close = :Close
+hint-login-probe = :Probe models
 hint-login-field = :Field
 hint-login-confirm = :Confirm
 hint-login-paste = :Paste

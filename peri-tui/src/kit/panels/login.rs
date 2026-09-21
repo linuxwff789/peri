@@ -28,12 +28,14 @@ use ratatui_kit::{
 
 mod config_store;
 mod edit_handler;
+pub(crate) mod probe;
 mod render;
 
 use self::config_store::delete_provider;
 use self::edit_handler::{enter_login_edit_mode, handle_login_edit_keys, handle_login_paste};
 use self::render::{
-    make_hint_line_for_login, mask_api_key_display, provider_type_label, render_login_edit_line,
+    make_hint_line_for_login, mask_api_key_display, probe_status_text, provider_type_label,
+    render_login_edit_line,
 };
 
 // ── Login 编辑模式类型 ─────────────────────────────────────────────────────────
@@ -196,6 +198,13 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     let store = hooks.use_atom(&PROVIDER_LIST);
     let providers: Vec<ProviderSummary> = store.read().clone();
     let _ = store;
+    // 端点探测状态（保存 / Ctrl+R 后写入）
+    let probe_atom = hooks.use_atom(&crate::kit::atoms::LOGIN_PROBE);
+    let probe_state = probe_atom.read().clone();
+    // 配置快照：Browse 行显示已落地的模型数
+    let cfg_snapshot = crate::kit::atoms::PERI_CONFIG_HANDLE
+        .get()
+        .map(|handle| handle.read().clone());
     let count = providers.len();
 
     // 面板绘制区域（上一帧）——鼠标点击行号反推
@@ -371,6 +380,12 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                                 *mode.write() = LoginPanelMode::ConfirmDelete;
                             }
                         }
+                        // Ctrl+R：重新探测选中 provider 的端点（刷新模型列表）
+                        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            if let Some(summary) = providers_for_closure.get(*cursor.read()) {
+                                probe::spawn_probe_for_saved(&summary.id);
+                            }
+                        }
                         // Enter：进入编辑模式
                         KeyCode::Enter => enter_edit_row(),
                         _ => {}
@@ -440,13 +455,30 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                         Style::new().fg(text_color)
                     };
 
-                    lines.push(Line::from(vec![
+                    // 端点探测状态（仅该 provider）——拼在标题行，保持行数不变
+                    let (probe_text, probe_error) = if probe_state.provider_id == p.id {
+                        probe_status_text(&probe_state.status).unwrap_or_default()
+                    } else {
+                        (String::new(), false)
+                    };
+                    let mut title_spans = vec![
                         Span::styled(
                             format!(" {} ", cursor_mark),
                             Style::new().fg(theme_def.read().component.panel.title),
                         ),
                         Span::styled(format!("{}  ({})", p.id, p.provider_type), row_style),
-                    ]));
+                    ];
+                    if !probe_text.is_empty() {
+                        title_spans.push(Span::styled(
+                            format!("  {probe_text}"),
+                            Style::new().fg(if probe_error {
+                                semantic.status.error
+                            } else {
+                                semantic.status.success
+                            }),
+                        ));
+                    }
+                    lines.push(Line::from(title_spans));
 
                     let key_marker = if p.has_api_key {
                         ("api key: configured", semantic.status.success)
@@ -459,10 +491,24 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                     )]));
                     if let Some(url) = &p.base_url {
                         let url_display: String = url.chars().take(70).collect();
-                        lines.push(Line::from(vec![Span::styled(
-                            format!("   base url: {}", url_display),
-                            Style::new().fg(dim),
-                        )]));
+                        // 已落地的模型数（探测结果存在 provider.extra）
+                        let model_count = cfg_snapshot
+                            .as_ref()
+                            .and_then(|cfg| cfg.config.providers.iter().find(|item| item.id == p.id))
+                            .map(|provider| probe::stored_models(provider).len())
+                            .unwrap_or(0);
+                        let suffix = if model_count > 0 {
+                            format!("  ·  {model_count} models")
+                        } else {
+                            String::new()
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("   base url: {}", url_display),
+                                Style::new().fg(dim),
+                            ),
+                            Span::styled(suffix, Style::new().fg(semantic.token_context)),
+                        ]));
                     }
                     lines.push(Line::from(""));
                 }
@@ -479,6 +525,7 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                     ("Enter".to_string(), i18n::tr("hint-login-edit")),
                     ("Ctrl+N".to_string(), i18n::tr("hint-login-new")),
                     ("Ctrl+D".to_string(), i18n::tr("hint-login-delete")),
+                    ("Ctrl+R".to_string(), i18n::tr("hint-login-probe")),
                     ("Esc".to_string(), i18n::tr("hint-login-close")),
                 ],
                 dim,
@@ -562,6 +609,28 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                     Style::default().fg(dim).add_modifier(Modifier::BOLD),
                 )));
 
+                // ── 端点探测状态（保存自动探测 / Ctrl+R 手动）——编辑模式行数不受鼠标命中约束
+                if probe_state.provider_id == es.provider_id
+                    || probe_state.provider_id == es.original_provider_id
+                {
+                    if let Some((text, is_error)) = probe_status_text(&probe_state.status) {
+                        lines.push(Line::from(vec![Span::styled(
+                            format!("  {text}"),
+                            Style::default().fg(if is_error {
+                                semantic.status.error
+                            } else {
+                                semantic.status.success
+                            }),
+                        )]));
+                    }
+                }
+                if es.base_url.trim().is_empty() {
+                    lines.push(Line::from(vec![Span::styled(
+                        format!("  {}", i18n::tr("login-base-url-hint")),
+                        Style::default().fg(dim),
+                    )]));
+                }
+
                 // ── Fable / Opus / Sonnet / Haiku 模型名
                 for field in &[
                     LoginEditField::FableModel,
@@ -608,6 +677,7 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                             "\u{2190}/\u{2192}/Space".to_string(),
                             i18n::tr("hint-login-toggle"),
                         ),
+                        ("Ctrl+R".to_string(), i18n::tr("hint-login-probe")),
                         ("Enter".to_string(), i18n::tr("hint-login-confirm")),
                         ("Esc".to_string(), i18n::tr("hint-login-back")),
                     ],

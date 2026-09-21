@@ -150,6 +150,12 @@ pub(crate) fn build_choices(
                 models.push(model.clone());
             }
         }
+        // 登录面板探测后持久化的模型列表（离线也可用，不依赖实时拉取）
+        for model in crate::kit::panels::login::probe::stored_models(provider) {
+            if !models.iter().any(|m| *m == model) {
+                models.push(model);
+            }
+        }
         for model in models {
             let tiers: Vec<&'static str> = TIER_ORDER
                 .iter()

@@ -153,14 +153,25 @@ pub(crate) fn adopt_env_provider(app: &mut AppConfig) -> Option<String> {
     Some(ENV_PROVIDER_ID.to_string())
 }
 
-/// 拉取目标：一个端点的 (provider_id, base_url, api_key)
+/// 拉取目标：一个端点的 (provider_id, base_url, api_key)。
+///
+/// apiKey 为空时回退同名环境变量（`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）——
+/// 与登录面板的 `has_api_key` 展示、`resolve_api_key` 保持一致：
+/// 不然用 env 起 peri 的场景（配置里手建了 provider 但没填 key）拉取会 401。
 fn fetch_targets(cfg: &PeriConfig) -> Vec<(String, String, String)> {
     let mut targets: Vec<(String, String, String)> = cfg
         .config
         .providers
         .iter()
         .filter(|p| !p.base_url.trim().is_empty())
-        .map(|p| (p.id.clone(), p.base_url.clone(), p.api_key.clone()))
+        .map(|p| {
+            let api_key = if p.api_key.trim().is_empty() {
+                crate::kit::panels::login::probe::resolve_api_key(&p.provider_type, "")
+            } else {
+                p.api_key.clone()
+            };
+            (p.id.clone(), p.base_url.clone(), api_key)
+        })
         .collect();
     if targets.is_empty()
         && let Some(env) = env_endpoint()

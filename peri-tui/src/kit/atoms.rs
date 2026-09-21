@@ -348,6 +348,11 @@ pub static MODEL_SWITCH_ANCHOR: AtomStatic<Option<(u16, u16)>> = AtomStatic::new
 pub static MODEL_PANEL_REMOTE: AtomStatic<crate::kit::panels::model::fetch::RemoteModels> =
     AtomStatic::new(crate::kit::panels::model::fetch::RemoteModels::default);
 
+/// Login 面板的端点探测状态（`GET {base}/models`，写入 `kit/panels/login/probe.rs`）。
+/// 面板订阅它显示 ⏳ / ✓ N 个模型 / ⚠ 失败。
+pub static LOGIN_PROBE: AtomStatic<crate::kit::panels::login::probe::ProbeState> =
+    AtomStatic::new(crate::kit::panels::login::probe::ProbeState::default);
+
 pub static INPUT_HISTORY: AtomStatic<VecDeque<String>> = AtomStatic::new(VecDeque::new);
 pub static INPUT_HISTORY_INDEX: AtomStatic<Option<usize>> = AtomStatic::new(|| None);
 /// 进入历史模式时保存的用户当前输入文本草稿。

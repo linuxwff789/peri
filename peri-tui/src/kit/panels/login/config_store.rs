@@ -10,7 +10,14 @@ use std::time::{Duration, Instant};
 use super::LoginEditState;
 
 /// 保存编辑结果：先持久化到磁盘，成功后才发布到 PERI_CONFIG_HANDLE /
-/// PROVIDER_LIST / ACP。返回 `true` 表示保存成功；`false` 表示校验失败、
+/// PROVIDER_LIST / ACP，最后异步探测端点（`GET {base}/models`）把模型列表拉回来。
+///
+/// 落盘前做两件归一化（用户常见输入）：
+/// - Base URL 剥掉 `/chat/completions` 等 API 路径、只填 host 时补 `/v1`；
+/// - API Key 留空时回退 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`（空 key 的 provider
+///   在 `LlmProvider::from_config_for_alias` 里直接不可用）。
+///
+/// 返回 `true` 表示保存成功；`false` 表示校验失败、
 /// 配置句柄缺失或持久化失败（不退出编辑，防止"假保存成功"）。
 pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
     let Some(handle) = PERI_CONFIG_HANDLE.get() else {
@@ -18,6 +25,23 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
     };
 
     let is_new = es.original_provider_id.is_empty();
+
+    // 归一化：URL 补全 + API Key 回退 env
+    let base_url = super::probe::normalize_base_url(&es.base_url);
+    let api_key = super::probe::resolve_api_key(&es.provider_type, &es.api_key);
+    let mut note: Option<String> = None;
+    if !es.base_url.trim().is_empty() && base_url != es.base_url.trim() {
+        note = Some(i18n::tr_args(
+            "login-base-url-normalized",
+            &[(
+                "url".to_string(),
+                FluentValue::from(base_url.as_str()),
+            )],
+        ));
+    }
+    if es.api_key.trim().is_empty() && !api_key.is_empty() {
+        note = Some(i18n::tr("login-api-key-from-env"));
+    }
 
     // 构建 detached 配置快照（在副本上修改，落盘成功前不动全局 handle）
     let snap = {
@@ -35,8 +59,8 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
             let new_config = ProviderConfig {
                 provider_type: es.provider_type.clone(),
                 id: es.provider_id.clone(),
-                api_key: es.api_key.clone(),
-                base_url: es.base_url.clone(),
+                api_key: api_key.clone(),
+                base_url: base_url.clone(),
                 models: ProviderModels {
                     fable: es.fable_model.clone(),
                     opus: es.opus_model.clone(),
@@ -61,8 +85,8 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
             {
                 provider.provider_type = es.provider_type.clone();
                 provider.id = es.provider_id.clone();
-                provider.api_key = es.api_key.clone();
-                provider.base_url = es.base_url.clone();
+                provider.api_key = api_key.clone();
+                provider.base_url = base_url.clone();
                 provider.models.fable = es.fable_model.clone();
                 provider.models.opus = es.opus_model.clone();
                 provider.models.sonnet = es.sonnet_model.clone();
@@ -117,8 +141,8 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
     }
 
     *NOTIFICATION.state().write() = Some(Notification {
-        message: i18n::tr("config-saved").to_string(),
-        until: Instant::now() + Duration::from_secs(1),
+        message: note.unwrap_or_else(|| i18n::tr("config-saved")),
+        until: Instant::now() + Duration::from_secs(2),
     });
 
     if is_new {
@@ -132,11 +156,19 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
             "LoginPanel: provider edit saved"
         );
     }
+
+    // 保存后自动探测端点 → 模型列表落地（`/model` 立即可见）
+    super::probe::spawn_probe(
+        es.provider_id.clone(),
+        base_url,
+        api_key,
+        es.provider_type.clone(),
+    );
     true
 }
 
 /// 从 PERI_CONFIG_HANDLE 刷新 PROVIDER_LIST atom（避免多处重复 25 行）
-fn refresh_provider_list() {
+pub(super) fn refresh_provider_list() {
     let Some(handle) = PERI_CONFIG_HANDLE.get() else {
         return;
     };

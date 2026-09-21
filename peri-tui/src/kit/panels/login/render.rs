@@ -3,7 +3,39 @@ use ratatui_kit::ratatui::{
     text::{Line, Span},
 };
 
+use crate::i18n;
+use crate::kit::panels::login::probe::ProbeStatus;
+use fluent_bundle::FluentValue;
+
 // ── 渲染辅助函数 ──────────────────────────────────────────────────────────────
+
+/// 探测状态 → 行内文案（None = 从未探测）。返回 `(文本, 是否错误色)`。
+pub(super) fn probe_status_text(status: &ProbeStatus) -> Option<(String, bool)> {
+    match status {
+        ProbeStatus::Idle => None,
+        ProbeStatus::Loading => Some((i18n::tr("login-probe-loading"), false)),
+        ProbeStatus::Done(count) => Some((
+            i18n::tr_args(
+                "login-probe-done",
+                &[(
+                    "count".to_string(),
+                    FluentValue::from(*count as i64),
+                )],
+            ),
+            false,
+        )),
+        ProbeStatus::Failed(error) => Some((
+            i18n::tr_args(
+                "login-probe-failed",
+                &[(
+                    "error".to_string(),
+                    FluentValue::from(error.as_str()),
+                )],
+            ),
+            true,
+        )),
+    }
+}
 
 /// 构建 Login 面板的底部提示行（风格与 setup_wizard 的 make_hint_line 一致）。
 pub(super) fn make_hint_line_for_login(

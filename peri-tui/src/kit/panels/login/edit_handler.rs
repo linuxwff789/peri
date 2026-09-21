@@ -73,6 +73,10 @@ pub(super) fn handle_login_edit_keys(
     // 导航 / 确认 / 放弃
     match key.code {
         KeyCode::Up if !is_ctrl => {
+            // 离开 Base URL 字段时归一化（粘贴完整 chat 地址 / 只填 host 都补全）
+            if *edit_focus == LoginEditField::BaseUrl {
+                es.base_url = super::probe::normalize_base_url(&es.base_url);
+            }
             *edit_focus = edit_focus.prev();
             *edit_cursor = if *edit_focus == LoginEditField::ProviderType {
                 0
@@ -81,12 +85,25 @@ pub(super) fn handle_login_edit_keys(
             };
         }
         KeyCode::Down if !is_ctrl => {
+            if *edit_focus == LoginEditField::BaseUrl {
+                es.base_url = super::probe::normalize_base_url(&es.base_url);
+            }
             *edit_focus = edit_focus.next();
             *edit_cursor = if *edit_focus == LoginEditField::ProviderType {
                 0
             } else {
                 es.field_value(*edit_focus).chars().count()
             };
+        }
+        // Ctrl+R：立即探测当前表单的端点（不落盘）——填完 base URL / key 就能看到模型
+        KeyCode::Char('r') if is_ctrl => {
+            es.base_url = super::probe::normalize_base_url(&es.base_url);
+            super::probe::spawn_probe_from_form(
+                &es.provider_id,
+                &es.base_url,
+                &es.api_key,
+                &es.provider_type,
+            );
         }
         KeyCode::Enter => {
             // Enter：聚焦在确认按钮时保存（校验通过才回到 Browse，参考 setup_wizard）

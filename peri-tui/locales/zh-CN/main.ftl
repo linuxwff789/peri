@@ -249,6 +249,13 @@ login-confirm-delete = :确认删除
 login-confirm-delete-warning =   此操作不可撤销。
 login-confirm = 确认
 login-model-label = 模型
+login-probe-loading = ⏳ 正在探测端点…
+login-probe-done = ✓ 发现 { $count } 个模型
+login-probe-failed = ⚠ 探测失败：{ $error }
+login-probe-no-url = base URL 为空
+login-base-url-normalized = 已归一化 Base URL：{ $url }
+login-base-url-hint = 填端点 base，如 http://host:8787（会自动去掉 /chat/completions 等路径）
+login-api-key-from-env = 已从环境变量取 API Key
 
 # ---- HITL Popup ----
 
@@ -310,6 +317,7 @@ hint-login-edit = :编辑
 hint-login-new = :新建
 hint-login-delete = :删除
 hint-login-close = :关闭
+hint-login-probe = :探测模型
 hint-login-field = :字段
 hint-login-confirm = :确认
 hint-login-paste = :粘贴
