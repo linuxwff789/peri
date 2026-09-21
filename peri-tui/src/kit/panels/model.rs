@@ -1,10 +1,14 @@
 //! ratatui-kit ModelPanel component.
 //!
-//! 左右分栏 Profile 编辑器：
-//! - 左侧：4 个固定档位卡片（fable / opus / sonnet / haiku），↑/↓ 选择即切换 active profile；
-//! - 右侧：当前 profile 的 K/V 编辑行（Provider / Model / Effort / Max tokens / 1m enable）。
+//! 默认视图 = **pi 式扁平模型列表**（`/model`）：所有 provider × model 平铺，
+//! 打字即过滤、↑/↓ 选择、Enter 立即切换。`Tab` 进入第二视图——原四档 Profile
+//! 编辑器（fable / opus / sonnet / haiku 档位 → provider/model/effort/max tokens/1m），
+//! 编辑器内 `Esc` 回到列表。
 //!
-//! 右侧 `→`/`←` 切换字段值并立即写入内存 + 持久化 + 推送 ACP（无 Enter/Save 步骤）。
+//! - 列表：`model/list.rs`（选模/过滤/渲染纯逻辑 + 事件），选择即绑定 active 档位；
+//! - 档位编辑器（Tiers）：左侧 4 个固定档位卡片，↑/↓ 选择即切换 active profile；
+//!   右侧当前 profile 的 K/V 编辑行（Provider / Model / Effort / Max tokens / 1m enable），
+//!   `→`/`←` 切换字段值并立即写入内存 + 持久化 + 推送 ACP（无 Enter/Save 步骤）。
 
 use crate::app::panel_types::PanelKind;
 use crate::i18n;
@@ -26,8 +30,12 @@ use ratatui_kit::{
 use unicode_width::UnicodeWidthStr;
 
 mod edit;
+mod list;
 use edit::edit_field;
 pub(crate) use edit::switch_active_alias;
+use list::{
+    ModelPanelView, build_choices, filter_choices, handle_list_event, render_rows, search_line,
+};
 
 // ---------------------------------------------------------------------------
 // 静态常量
@@ -70,6 +78,27 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         .unwrap_or_else(|| "opus".to_string());
     let _lang_ver = hooks.use_atom(&LANG_VERSION);
 
+    // ── pi 式扁平列表视图状态 ──
+    // view：列表（默认）/ 档位编辑器；query：过滤串；list_sel：过滤后列表选中下标。
+    let view = hooks.use_state(ModelPanelView::default);
+    let query = hooks.use_state(String::new);
+    let list_sel = hooks.use_state(|| {
+        // 初始选中 = 当前 active 档位实际使用的组合，打开即为它。
+        let Some(handle) = PERI_CONFIG_HANDLE.get() else {
+            return 0usize;
+        };
+        let cfg = handle.read();
+        let alias = cfg.config.active_alias.clone();
+        build_choices(&cfg, &alias)
+            .iter()
+            .position(|choice| choice.current)
+            .unwrap_or(0)
+    });
+
+    // 面板上一帧尺寸（hook 必须无条件调用；列表可见行数与右栏对齐都用它）。
+    let prev_size = hooks.use_previous_size();
+    let list_visible = list_visible_rows(prev_size.height);
+
     // 左侧 profile 列表的滚动状态——鼠标点击行号反推需要滚动偏移（外部受控，
     // 否则列表滚动后点击命中错位）。`hooks.use_state` 顺序稳定，位于条件渲染之前。
     let left_scroll = hooks.use_state(ScrollViewState::default);
@@ -85,12 +114,26 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     let rv = render_version;
     let render_version_for_handler = render_version;
     let left_scroll_for_handler = left_scroll;
+    let view_for_handler = view;
+    let query_for_handler = query;
+    let list_sel_for_handler = list_sel;
     hooks.use_event_handler_with_options(
         EventScope::Current,
         EventPriority::Normal,
         EventOptions { hit_test: true },
         {
             move |event| {
+                // 列表视图：pi 式选择器路径（搜索/选择/Enter 切换）。
+                if *view_for_handler.read() == ModelPanelView::List {
+                    return handle_list_event(
+                        event,
+                        area,
+                        view_for_handler,
+                        query_for_handler,
+                        list_sel_for_handler,
+                        list_visible,
+                    );
+                }
                 // 鼠标：区域内左键点击左侧 profile 卡片行 = 选中并切换（click as enter）。
                 // 左侧栏 = 主区宽 45%（panel_shell 左右边框各 1 列）；ScrollView 滚动条
                 // 占其最右 1 列，点击该列排除（不触发切换）。
@@ -140,8 +183,9 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                             // 退出右侧编辑焦点
                             *right_focus.write() = false;
                         } else {
-                            // 全局 Esc 由 panel_overlay 处理；此处返回 Ignored 让其关闭面板
-                            return EventResult::Ignored;
+                            // 退出档位编辑器 → 回到 pi 式列表（再按 Esc 由全局链关面板）
+                            *view_for_handler.write() = ModelPanelView::List;
+                            *render_version_for_handler.write() += 1;
                         }
                     }
                     KeyCode::Up => {
@@ -202,12 +246,19 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     );
 
     let theme = theme_def.read();
+    let is_list = *view.read() == ModelPanelView::List;
+    // 配置快照：列表派生（choices）与档位编辑器都读同一份，避免嵌套借用 config 句柄。
+    let cfg_snapshot = PERI_CONFIG_HANDLE.get().map(|h| h.read().clone());
 
-    // ── 标题 ──
-    let title_line = Line::from(vec![Span::styled(
-        i18n::tr("model-panel-title"),
-        Style::new().fg(theme.semantic.text.primary).bold(),
-    )]);
+    // ── 标题 / 搜索栏 ──
+    let title_line = if is_list {
+        search_line(&query.read(), &theme, true)
+    } else {
+        Line::from(vec![Span::styled(
+            i18n::tr("model-panel-title"),
+            Style::new().fg(theme.semantic.text.primary).bold(),
+        )])
+    };
 
     // ── 左侧：Profile 卡片 ──
     let active_idx = PROFILE_KEYS
@@ -323,7 +374,6 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
 
     // ── 响应式右列宽度：窄屏时 VALUE_ALIGN_COL 收缩，避免值被截断 ──
     // 首帧 use_previous_size 返回 width=0，退守 80 列（宽屏对齐），下一帧修正。
-    let prev_size = hooks.use_previous_size();
     let panel_w = if prev_size.width > 0 {
         prev_size.width as usize
     } else {
@@ -372,7 +422,33 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         .collect();
 
     // ── 底部导航提示 ──
-    let hint_line = Line::from(i18n::tr("panel-model-nav-hint")).fg(theme.semantic.text.dim);
+    let hint_line = if is_list {
+        Line::from(i18n::tr("panel-model-list-hint")).fg(theme.semantic.text.dim)
+    } else {
+        Line::from(i18n::tr("panel-model-nav-hint")).fg(theme.semantic.text.dim)
+    };
+
+    // ── pi 式列表：过滤 + 渲染（选择下标在过滤后列表上；越界时钳制）──
+    let choices = cfg_snapshot
+        .as_ref()
+        .map(|cfg| build_choices(cfg, &active_alias))
+        .unwrap_or_default();
+    let indices = filter_choices(&choices, &query.read());
+    let list_selected = crate::kit::list_nav::clamp_selection(*list_sel.read(), indices.len());
+    let list_scroll = crate::kit::list_nav::scroll_start_for_selected(
+        list_selected,
+        indices.len(),
+        list_visible,
+    );
+    let list_para = Paragraph::new(ratatui::text::Text::from(render_rows(
+        &choices,
+        &indices,
+        list_selected,
+        list_scroll,
+        list_visible,
+        panel_w,
+        &theme,
+    )));
 
     let left_para = Paragraph::new(ratatui::text::Text::from(left_lines));
     let right_para = Paragraph::new(ratatui::text::Text::from(right_lines));
@@ -380,53 +456,61 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
 
     drop(theme);
 
-    // 面板滚轮仲裁注册（双栏：按 45% 切分左右区域，divider 列并入右侧）
-    let (left_area, right_area) = crate::kit::panel_scroll::split_vertical(prev_size, 45);
-    crate::kit::panel_scroll::register_panel_scrolls(
-        PanelKind::Model,
-        vec![
-            crate::kit::panel_scroll::PanelScrollSlot {
-                area: left_area,
-                state: left_scroll,
-            },
-            crate::kit::panel_scroll::PanelScrollSlot {
-                area: right_area,
-                state: right_scroll,
-            },
-        ],
-    );
+    // 面板滚轮仲裁注册（档位编辑器双栏：按 45% 切分左右区域，divider 列并入右侧）
+    if !is_list {
+        let (left_area, right_area) = crate::kit::panel_scroll::split_vertical(prev_size, 45);
+        crate::kit::panel_scroll::register_panel_scrolls(
+            PanelKind::Model,
+            vec![
+                crate::kit::panel_scroll::PanelScrollSlot {
+                    area: left_area,
+                    state: left_scroll,
+                },
+                crate::kit::panel_scroll::PanelScrollSlot {
+                    area: right_area,
+                    state: right_scroll,
+                },
+            ],
+        );
+    }
 
     panel_shell!(PanelKind::Model, {
         View(height: Constraint::Length(1)) {
             Text(text: title_line)
         }
         View(height: Constraint::Length(1)) {}
-        View(
-            flex_direction: Direction::Horizontal,
-            width: Constraint::Fill(1),
-            height: Constraint::Fill(1),
-        ) {
-            View(width: Constraint::Percentage(45), height: Constraint::Fill(1)) {
-                ScrollView(
-                    scrollbars: crate::kit::panel_registry::clean_scrollbars(),
-                    state: Some(left_scroll),
-                    width: Constraint::Fill(1),
-                    height: Constraint::Fill(1),
-                ) {
-                    Text(text: left_para)
-                }
-            }
-            View(width: Constraint::Length(1), height: Constraint::Fill(1)) {
-                Text(text: divider_para)
-            }
+        if is_list {
             View(width: Constraint::Fill(1), height: Constraint::Fill(1)) {
-                ScrollView(
-                    scrollbars: crate::kit::panel_registry::clean_scrollbars(),
-                    state: Some(right_scroll),
-                    width: Constraint::Fill(1),
-                    height: Constraint::Fill(1),
-                ) {
-                    Text(text: right_para)
+                Text(text: list_para)
+            }
+        } else {
+            View(
+                flex_direction: Direction::Horizontal,
+                width: Constraint::Fill(1),
+                height: Constraint::Fill(1),
+            ) {
+                View(width: Constraint::Percentage(45), height: Constraint::Fill(1)) {
+                    ScrollView(
+                        scrollbars: crate::kit::panel_registry::clean_scrollbars(),
+                        state: Some(left_scroll),
+                        width: Constraint::Fill(1),
+                        height: Constraint::Fill(1),
+                    ) {
+                        Text(text: left_para)
+                    }
+                }
+                View(width: Constraint::Length(1), height: Constraint::Fill(1)) {
+                    Text(text: divider_para)
+                }
+                View(width: Constraint::Fill(1), height: Constraint::Fill(1)) {
+                    ScrollView(
+                        scrollbars: crate::kit::panel_registry::clean_scrollbars(),
+                        state: Some(right_scroll),
+                        width: Constraint::Fill(1),
+                        height: Constraint::Fill(1),
+                    ) {
+                        Text(text: right_para)
+                    }
                 }
             }
         }
@@ -434,6 +518,11 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
             Text(text: hint_line)
         }
     })
+}
+
+/// 列表视图可见行数：内容区高 = 面板高 - 上下边框（2），减去标题/空行/提示（3）。
+fn list_visible_rows(panel_height: u16) -> usize {
+    (panel_height.saturating_sub(5) as usize).max(3)
 }
 
 /// 模型名内嵌 effort 后缀（如 "gpt-5.6-luna high"）：主色用 model_info，后缀用 model accent 色高亮。

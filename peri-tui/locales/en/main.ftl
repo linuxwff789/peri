@@ -15,7 +15,7 @@ command-help-description = List all available commands
 command-clear-description = Clear message list
 command-exit-description = Exit the application
 command-compact-description = Compact conversation context (structured summary + re-inject recent files/Skills)
-command-model-description = Open model selection panel (Provider + Level + Thinking); with args, switch alias directly (opus/sonnet/haiku)
+command-model-description = Search and switch model across all providers (with args, switch alias directly: opus/sonnet/haiku)
 command-login-description = Manage Provider configuration (create/edit/delete)
 command-cost-description = View current session cost and token usage
 command-context-description = View context usage and session statistics
@@ -454,8 +454,11 @@ model-effort-medium = Medium
 model-effort-high = High
 model-effort-xhigh = XHigh
 model-effort-max = Max
-panel-model-nav-hint =   ↑/↓::switch  Tab::side  →/←::value  Esc::exit/close
+panel-model-nav-hint =   ↑/↓::switch  Tab::side  →/←::value  Esc::back
 panel-model-inline-toggle-hint =   Enter toggle
+panel-model-list-placeholder = Search models…
+panel-model-list-empty = No matching model
+panel-model-list-hint =   type::search  ↑/↓::select  Enter::switch  Tab::tiers  Esc::close
 
 # ---- Status Panel ----
 
@@ -843,7 +846,7 @@ panel-title-shell-detail = Shell Detail
 panel-title-goal = Goal
 
 # ---- Panel Descriptions ----
-panel-desc-model = Model alias selection
+panel-desc-model = Searchable model list
 panel-desc-login = Provider credentials
 panel-desc-agent = Subagent definitions
 panel-desc-hooks = Hook events

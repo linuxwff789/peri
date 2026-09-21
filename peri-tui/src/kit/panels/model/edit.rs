@@ -39,6 +39,27 @@ pub(crate) fn switch_active_alias(idx: usize) {
     commit_snapshot(snap, ModelChange::ActiveAlias(key.to_string()));
 }
 
+/// pi 式扁平列表的切换动作：把当前 active 档位直接绑定到 `(provider, model)`。
+///
+/// 与右侧字段编辑共用同一提交边界（立即写入 → 持久化 → 推送 ACP）；
+/// ACP 侧收 `session/update_config` 后重建 `LlmProvider` 并 invalidate 会话缓存，
+/// 因此运行中的会话下一轮就使用新模型。
+pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
+    let Some(handle) = PERI_CONFIG_HANDLE.get() else {
+        return;
+    };
+    let mut cfg = handle.write();
+    let alias = cfg.config.active_alias.clone();
+    let Some(profile) = cfg.config.profiles.get_mut(&alias) else {
+        return;
+    };
+    profile.provider = provider_id.to_string();
+    profile.model = Some(model.to_string());
+    let snap = cfg.clone();
+    drop(cfg);
+    commit_snapshot(snap, ModelChange::ProfileField(alias));
+}
+
 /// 编辑右侧字段（forward=true 前进 / false 后退）。立即写入 + 持久化 + 推送 ACP。
 pub(super) fn edit_field(alias: String, field: usize, forward: bool) {
     let Some(handle) = PERI_CONFIG_HANDLE.get() else {

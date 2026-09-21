@@ -14,7 +14,7 @@ command-help-description = 列出所有可用命令
 command-clear-description = 清空消息列表
 command-exit-description = 退出应用
 command-compact-description = 压缩对话上下文（结构化摘要 + 重新注入最近文件/Skills）
-command-model-description = 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名（opus/sonnet/haiku）
+command-model-description = 搜索并切换模型（跨所有 Provider 的扁平列表）；带参数时直接切换别名（opus/sonnet/haiku）
 command-login-description = 管理 Provider 配置（新建/编辑/删除）
 command-cost-description = 查看当前会话费用和 token 消耗
 command-context-description = 查看上下文使用率和会话统计
@@ -453,8 +453,11 @@ model-effort-medium = 中
 model-effort-high = 高
 model-effort-xhigh = 超高
 model-effort-max = 最大
-panel-model-nav-hint =   ↑/↓::切换  Tab::左右  →/←::改值  Esc::退出/关闭
+panel-model-nav-hint =   ↑/↓::切换  Tab::左右  →/←::改值  Esc::返回列表
 panel-model-inline-toggle-hint =   Enter 切换
+panel-model-list-placeholder = 搜索模型…
+panel-model-list-empty = 没有匹配的模型
+panel-model-list-hint =   输入::搜索  ↑/↓::选择  Enter::切换  Tab::档位  Esc::关闭
 
 # ---- 状态面板 ----
 
@@ -841,7 +844,7 @@ panel-title-shell-detail = Shell 详情
 panel-title-goal = Goal
 
 # ---- Panel Descriptions ----
-panel-desc-model = Model 别名选择
+panel-desc-model = 可搜索模型列表
 panel-desc-login = Provider 凭证管理
 panel-desc-agent = SubAgent 定义
 panel-desc-hooks = Hook 事件
