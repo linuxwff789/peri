@@ -30,6 +30,7 @@ use ratatui_kit::{
 use unicode_width::UnicodeWidthStr;
 
 mod edit;
+pub(crate) mod fetch;
 mod list;
 use edit::edit_field;
 pub(crate) use edit::switch_active_alias;
@@ -77,6 +78,9 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         .map(|h| h.read().config.active_alias.clone())
         .unwrap_or_else(|| "opus".to_string());
     let _lang_ver = hooks.use_atom(&LANG_VERSION);
+    // 端点模型列表缓存（`Ctrl+R` / 首次打开自动拉取；拉取完成写入即重绘）
+    let remote_models = hooks.use_atom(&crate::kit::atoms::MODEL_PANEL_REMOTE);
+    hooks.use_effect(fetch::spawn_fetch_if_stale, ());
 
     // ── pi 式扁平列表视图状态 ──
     // view：列表（默认）/ 档位编辑器；query：过滤串；list_sel：过滤后列表选中下标。
@@ -87,9 +91,14 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         let Some(handle) = PERI_CONFIG_HANDLE.get() else {
             return 0usize;
         };
+        let remote = crate::kit::atoms::MODEL_PANEL_REMOTE
+            .state()
+            .read()
+            .entries
+            .clone();
         let cfg = handle.read();
         let alias = cfg.config.active_alias.clone();
-        build_choices(&cfg, &alias)
+        build_choices(&cfg, &alias, &remote)
             .iter()
             .position(|choice| choice.current)
             .unwrap_or(0)
@@ -249,6 +258,9 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     let is_list = *view.read() == ModelPanelView::List;
     // 配置快照：列表派生（choices）与档位编辑器都读同一份，避免嵌套借用 config 句柄。
     let cfg_snapshot = PERI_CONFIG_HANDLE.get().map(|h| h.read().clone());
+    // 端点拉取缓存（拉取完成会重绘）：列表行 + 底部状态提示
+    let remote_entries = remote_models.read().entries.clone();
+    let fetch_hint = fetch::status_hint(&remote_models.read());
 
     // ── 标题 / 搜索栏 ──
     let title_line = if is_list {
@@ -422,8 +434,24 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         .collect();
 
     // ── 底部导航提示 ──
+    // 列表视图提示后附加拉取状态（加载中/✓ N 个模型/⚠ 失败）
     let hint_line = if is_list {
-        Line::from(i18n::tr("panel-model-list-hint")).fg(theme.semantic.text.dim)
+        let mut spans = vec![Span::styled(
+            i18n::tr("panel-model-list-hint"),
+            Style::new().fg(theme.semantic.text.dim),
+        )];
+        if let Some((text, is_error)) = fetch_hint {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                text,
+                if is_error {
+                    Style::new().fg(theme.semantic.status.error)
+                } else {
+                    Style::new().fg(theme.semantic.status.success)
+                },
+            ));
+        }
+        Line::from(spans)
     } else {
         Line::from(i18n::tr("panel-model-nav-hint")).fg(theme.semantic.text.dim)
     };
@@ -431,7 +459,7 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     // ── pi 式列表：过滤 + 渲染（选择下标在过滤后列表上；越界时钳制）──
     let choices = cfg_snapshot
         .as_ref()
-        .map(|cfg| build_choices(cfg, &active_alias))
+        .map(|cfg| build_choices(cfg, &active_alias, &remote_entries))
         .unwrap_or_default();
     let indices = filter_choices(&choices, &query.read());
     let list_selected = crate::kit::list_nav::clamp_selection(*list_sel.read(), indices.len());

@@ -44,20 +44,43 @@ pub(crate) fn switch_active_alias(idx: usize) {
 /// 与右侧字段编辑共用同一提交边界（立即写入 → 持久化 → 推送 ACP）；
 /// ACP 侧收 `session/update_config` 后重建 `LlmProvider` 并 invalidate 会话缓存，
 /// 因此运行中的会话下一轮就使用新模型。
+///
+/// 列表里的 provider 可能只是 env 端点合成的 `env`（配置里没有 provider）：
+/// 此时先把它**落地**成真正的 provider 条目，否则 ACP 会因 `providers` 为空 /
+/// `profile.provider` 找不到而拒绝切换。落地时给用户一条通知（写盘可见）。
 pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
     let Some(handle) = PERI_CONFIG_HANDLE.get() else {
         return;
     };
     let mut cfg = handle.write();
     let alias = cfg.config.active_alias.clone();
+    let mut adopted = false;
+    let target_provider = if cfg.config.providers.iter().any(|p| p.id == provider_id) {
+        provider_id.to_string()
+    } else if let Some(env_id) = super::fetch::adopt_env_provider(&mut cfg.config) {
+        adopted = true;
+        env_id
+    } else {
+        cfg.config
+            .providers
+            .first()
+            .map(|p| p.id.clone())
+            .unwrap_or_default()
+    };
     let Some(profile) = cfg.config.profiles.get_mut(&alias) else {
         return;
     };
-    profile.provider = provider_id.to_string();
+    profile.provider = target_provider;
     profile.model = Some(model.to_string());
     let snap = cfg.clone();
     drop(cfg);
     commit_snapshot(snap, ModelChange::ProfileField(alias));
+    if adopted {
+        *NOTIFICATION.state().write() = Some(Notification {
+            message: i18n::tr("model-panel-env-adopted"),
+            until: Instant::now() + Duration::from_secs(3),
+        });
+    }
 }
 
 /// 编辑右侧字段（forward=true 前进 / false 后退）。立即写入 + 持久化 + 推送 ACP。

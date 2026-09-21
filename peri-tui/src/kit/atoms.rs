@@ -343,6 +343,11 @@ pub(crate) static PANEL_SCROLL_PENDING_TARGET: AtomStatic<
 /// 自定位到锚点上方（非居中大弹窗）。
 pub static MODEL_SWITCH_ANCHOR: AtomStatic<Option<(u16, u16)>> = AtomStatic::new(|| None);
 
+/// 模型面板端点拉取缓存（`GET {baseUrl}/models` 的结果）。
+/// 写在 `kit/panels/model/fetch.rs`，面板渲染时订阅（拉取完成自动重绘）。
+pub static MODEL_PANEL_REMOTE: AtomStatic<crate::kit::panels::model::fetch::RemoteModels> =
+    AtomStatic::new(crate::kit::panels::model::fetch::RemoteModels::default);
+
 pub static INPUT_HISTORY: AtomStatic<VecDeque<String>> = AtomStatic::new(VecDeque::new);
 pub static INPUT_HISTORY_INDEX: AtomStatic<Option<usize>> = AtomStatic::new(|| None);
 /// 进入历史模式时保存的用户当前输入文本草稿。

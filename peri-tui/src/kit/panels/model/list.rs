@@ -11,6 +11,7 @@
 //! 本模块只放纯逻辑与事件处理——组件骨架（hooks/布局/panel_shell）留在 `model.rs`。
 
 use super::edit::apply_model_choice;
+use super::fetch::{effective_providers, spawn_fetch};
 use crate::config::{AppConfig, PeriConfig, ProviderConfig, Profiles};
 use crate::i18n;
 use crate::kit::list_nav::{next_selection, previous_selection};
@@ -87,13 +88,20 @@ pub(crate) fn active_target(app: &AppConfig, alias: &str) -> (String, String) {
 /// 从配置构建扁平列表（provider 顺序 = 配置顺序；provider 内 = 档位顺序）。
 ///
 /// 每个 provider 的候选模型 = 四个档位字段（去空去重）+ 绑定到该 provider 的
-/// profile 手填 model（去重）。active 目标不在其中时置顶补一条，保证 ● 恒可见。
-pub(crate) fn build_choices(cfg: &PeriConfig, active_alias: &str) -> Vec<ModelChoice> {
+/// profile 手填 model（去重）+ 端点拉取的模型（`remote`，按返回序去重追加）。
+/// 配置里没有 provider 时（env 起 peri）退化为合成的 `env` provider；
+/// active 目标不在其中时置顶补一条，保证 ● 恒可见。
+pub(crate) fn build_choices(
+    cfg: &PeriConfig,
+    active_alias: &str,
+    remote: &[(String, String)],
+) -> Vec<ModelChoice> {
     let app = &cfg.config;
     let (active_pid, active_model) = active_target(app, active_alias);
+    let providers = effective_providers(app);
     let mut out: Vec<ModelChoice> = Vec::new();
 
-    for provider in &app.providers {
+    for provider in &providers {
         let mut models: Vec<String> = Vec::new();
         for tier in TIER_ORDER {
             let model = raw_tier(provider, tier);
@@ -112,6 +120,11 @@ pub(crate) fn build_choices(cfg: &PeriConfig, active_alias: &str) -> Vec<ModelCh
                 && !models.iter().any(|m| m == model)
             {
                 models.push(model.to_string());
+            }
+        }
+        for (provider_id, model) in remote {
+            if provider_id == &provider.id && !models.iter().any(|m| m == model) {
+                models.push(model.clone());
             }
         }
         for model in models {
@@ -135,8 +148,7 @@ pub(crate) fn build_choices(cfg: &PeriConfig, active_alias: &str) -> Vec<ModelCh
     }
 
     if !out.iter().any(|c| c.current) && !active_model.is_empty() {
-        let label = app
-            .providers
+        let label = providers
             .iter()
             .find(|p| p.id == active_pid)
             .map(|p| p.display_name().to_string())
@@ -380,6 +392,11 @@ pub(super) fn handle_list_event(
                 *selected.write() = 0;
                 EventResult::Consumed
             }
+            // Ctrl+R：重新拉取端点模型列表（`r` 本身是搜索字符，所以必须带 Ctrl）。
+            (KeyModifiers::CONTROL, KeyCode::Char('r')) => {
+                spawn_fetch();
+                EventResult::Consumed
+            }
             (mods, KeyCode::Char(ch))
                 if !mods.contains(KeyModifiers::CONTROL) && !mods.contains(KeyModifiers::ALT) =>
             {
@@ -444,7 +461,8 @@ fn filtered_snapshot(query: &str) -> (Vec<usize>, Vec<ModelChoice>) {
         return (Vec::new(), Vec::new());
     };
     let cfg = handle.read();
-    let choices = build_choices(&cfg, &cfg.config.active_alias);
+    let remote = crate::kit::atoms::MODEL_PANEL_REMOTE.state().read().entries.clone();
+    let choices = build_choices(&cfg, &cfg.config.active_alias, &remote);
     let indices = filter_choices(&choices, query);
     (indices, choices)
 }
@@ -471,6 +489,8 @@ fn apply_selected(choices: &[ModelChoice], indices: &[usize], selected: usize) {
     let Some(choice) = choices.get(choice_idx) else {
         return;
     };
+    // 选中 env 合成 provider = 先把 env 端点落地成配置 provider（在
+    // `edit::apply_model_choice` 内完成），否则 ACP 侧拒绝切换。
     apply_model_choice(&choice.provider_id, &choice.model);
 }
 

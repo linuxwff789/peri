@@ -457,7 +457,11 @@ panel-model-nav-hint =   ↑/↓::切换  Tab::左右  →/←::改值  Esc::返
 panel-model-inline-toggle-hint =   Enter 切换
 panel-model-list-placeholder = 搜索模型…
 panel-model-list-empty = 没有匹配的模型
-panel-model-list-hint =   输入::搜索  ↑/↓::选择  Enter::切换  Tab::档位  Esc::关闭
+panel-model-list-hint =   输入::搜索  ↑/↓::选择  Enter::切换  Tab::档位  Ctrl+R::刷新  Esc::关闭
+panel-model-fetch-loading = ⏳ 正在拉取模型…
+panel-model-fetch-done = ✓ 端点 { $count } 个模型
+panel-model-fetch-failed = ⚠ 拉取失败：{ $error }
+model-panel-env-adopted = 已把当前端点写进配置（provider "env"）
 
 # ---- 状态面板 ----
 

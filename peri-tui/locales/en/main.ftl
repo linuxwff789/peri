@@ -458,7 +458,11 @@ panel-model-nav-hint =   ↑/↓::switch  Tab::side  →/←::value  Esc::back
 panel-model-inline-toggle-hint =   Enter toggle
 panel-model-list-placeholder = Search models…
 panel-model-list-empty = No matching model
-panel-model-list-hint =   type::search  ↑/↓::select  Enter::switch  Tab::tiers  Esc::close
+panel-model-list-hint =   type::search  ↑/↓::select  Enter::switch  Tab::tiers  Ctrl+R::refresh  Esc::close
+panel-model-fetch-loading = ⏳ fetching models…
+panel-model-fetch-done = ✓ { $count } endpoint models
+panel-model-fetch-failed = ⚠ fetch failed: { $error }
+model-panel-env-adopted = Endpoint saved to config as provider "env"
 
 # ---- Status Panel ----
 

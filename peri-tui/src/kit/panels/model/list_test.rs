@@ -41,7 +41,7 @@ fn build_choices_flattens_providers_in_config_order() {
         "opus",
     );
 
-    let choices = build_choices(&cfg, "opus");
+    let choices = build_choices(&cfg, "opus", &[]);
     let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
     assert_eq!(
         models,
@@ -64,7 +64,7 @@ fn build_choices_dedupes_shared_model_across_tiers() {
         vec![provider("alpha", ["same", "same", "other", "same"])],
         "opus",
     );
-    let choices = build_choices(&cfg, "opus");
+    let choices = build_choices(&cfg, "opus", &[]);
     let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
     assert_eq!(models, vec!["same", "other"]);
     assert_eq!(choices[0].tiers, vec!["fable", "opus", "haiku"]);
@@ -78,7 +78,7 @@ fn build_choices_marks_current_profile_target() {
     profile.provider = "alpha".to_string();
     profile.model = Some("o".to_string());
 
-    let choices = build_choices(&cfg, "sonnet");
+    let choices = build_choices(&cfg, "sonnet", &[]);
     let current: Vec<&str> = choices
         .iter()
         .filter(|c| c.current)
@@ -94,7 +94,7 @@ fn build_choices_includes_manual_profile_model() {
     profile.provider = "alpha".to_string();
     profile.model = Some("manual-1".to_string());
 
-    let choices = build_choices(&cfg, "haiku");
+    let choices = build_choices(&cfg, "haiku", &[]);
     let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
     assert_eq!(models, vec!["f", "o", "s", "h", "manual-1"]);
     let manual = choices.last().unwrap();
@@ -111,7 +111,7 @@ fn build_choices_prepends_current_when_not_listed_anywhere() {
     profile.provider = "ghost".to_string();
     profile.model = Some("ghost-model".to_string());
 
-    let choices = build_choices(&cfg, "opus");
+    let choices = build_choices(&cfg, "opus", &[]);
     assert_eq!(choices[0].provider_id, "alpha");
     assert_eq!(choices[0].model, "ghost-model");
     assert!(choices[0].current);
@@ -125,7 +125,7 @@ fn build_choices_prepends_current_when_provider_lists_no_model() {
     let profile = cfg.config.profiles.get_mut("opus").unwrap();
     profile.model = Some("only-model".to_string());
 
-    let choices = build_choices(&cfg, "opus");
+    let choices = build_choices(&cfg, "opus", &[]);
     assert_eq!(choices.len(), 1);
     assert_eq!(choices[0].provider_id, "alpha");
     assert_eq!(choices[0].model, "only-model");
@@ -135,7 +135,7 @@ fn build_choices_prepends_current_when_provider_lists_no_model() {
 #[test]
 fn filter_choices_empty_query_returns_all() {
     let cfg = config(vec![provider("alpha", ["f", "o", "s", "h"])], "opus");
-    let choices = build_choices(&cfg, "opus");
+    let choices = build_choices(&cfg, "opus", &[]);
     assert_eq!(filter_choices(&choices, ""), vec![0, 1, 2, 3]);
     assert_eq!(filter_choices(&choices, "   "), vec![0, 1, 2, 3]);
 }
@@ -149,7 +149,7 @@ fn filter_choices_matches_model_provider_and_label() {
         ],
         "opus",
     );
-    let choices = build_choices(&cfg, "opus");
+    let choices = build_choices(&cfg, "opus", &[]);
 
     assert_eq!(filter_choices(&choices, "gpt"), vec![0, 1]);
     assert_eq!(filter_choices(&choices, "ALPHA"), vec![0, 1]);
@@ -175,4 +175,19 @@ fn truncate_to_respects_display_width() {
     assert_eq!(truncate_to("abcdef", 4), "abc…");
     // 宽字符按显示宽度计算
     assert_eq!(truncate_to("中文模型", 4), "中…");
+}
+
+#[test]
+fn build_choices_appends_remote_models_per_provider() {
+    let cfg = config(vec![provider("alpha", ["f", "o", "s", "h"])], "opus");
+    let remote = vec![
+        ("alpha".to_string(), "remote-1".to_string()),
+        ("alpha".to_string(), "o".to_string()), // 已在档位映射里 → 不重复
+        ("beta".to_string(), "ghost-provider".to_string()), // provider 不存在 → 丢弃
+    ];
+    let choices = build_choices(&cfg, "opus", &remote);
+    let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
+    assert_eq!(models, vec!["f", "o", "s", "h", "remote-1"]);
+    assert!(choices[4].tiers.is_empty(), "端点模型没有档位徽标");
+    assert!(!choices[4].current);
 }
