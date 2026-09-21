@@ -47,7 +47,13 @@ fn build_choices_flattens_providers_in_config_order() {
         models,
         vec!["a-fable", "a-opus", "a-sonnet", "a-haiku", "b-opus"]
     );
-    assert!(choices.iter().all(|c| !c.current), "未绑定 profile 时无 ●");
+    // 默认 Profile 未显式绑定 provider/model：解析回退到第一个 provider 的 opus 档。
+    let current: Vec<&str> = choices
+        .iter()
+        .filter(|c| c.current)
+        .map(|c| c.model.as_str())
+        .collect();
+    assert_eq!(current, vec!["a-opus"]);
     assert_eq!(choices[1].tiers, vec!["opus"]);
     assert_eq!(choices[0].tiers, vec!["fable"]);
 }
@@ -98,16 +104,32 @@ fn build_choices_includes_manual_profile_model() {
 
 #[test]
 fn build_choices_prepends_current_when_not_listed_anywhere() {
+    // profile 指向不存在的 provider：解析回退到第一个 provider（与请求侧解析一致），
+    // 手填 model 不在任何档位映射里 → 置顶补一条并标 ●。
     let mut cfg = config(vec![provider("alpha", ["f", "o", "s", "h"])], "opus");
     let profile = cfg.config.profiles.get_mut("opus").unwrap();
     profile.provider = "ghost".to_string();
     profile.model = Some("ghost-model".to_string());
 
     let choices = build_choices(&cfg, "opus");
-    assert_eq!(choices[0].provider_id, "ghost");
+    assert_eq!(choices[0].provider_id, "alpha");
     assert_eq!(choices[0].model, "ghost-model");
     assert!(choices[0].current);
-    assert_eq!(choices[0].provider_label, "ghost");
+    assert!(choices[0].tiers.is_empty());
+}
+
+#[test]
+fn build_choices_prepends_current_when_provider_lists_no_model() {
+    // provider 四个档位全空 + profile 手填 model：列表本为空，置顶补当前条目。
+    let mut cfg = config(vec![provider("alpha", ["", "", "", ""])], "opus");
+    let profile = cfg.config.profiles.get_mut("opus").unwrap();
+    profile.model = Some("only-model".to_string());
+
+    let choices = build_choices(&cfg, "opus");
+    assert_eq!(choices.len(), 1);
+    assert_eq!(choices[0].provider_id, "alpha");
+    assert_eq!(choices[0].model, "only-model");
+    assert!(choices[0].current);
 }
 
 #[test]
