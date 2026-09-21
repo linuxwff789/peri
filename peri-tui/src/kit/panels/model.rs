@@ -31,7 +31,7 @@ use unicode_width::UnicodeWidthStr;
 
 mod edit;
 pub(crate) mod fetch;
-mod list;
+pub(crate) mod list;
 use edit::edit_field;
 pub(crate) use edit::switch_active_alias;
 use list::{

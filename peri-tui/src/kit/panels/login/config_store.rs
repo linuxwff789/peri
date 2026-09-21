@@ -46,6 +46,13 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
     // 构建 detached 配置快照（在副本上修改，落盘成功前不动全局 handle）
     let snap = {
         let mut cfg = handle.write().clone();
+        // active_alias 为空（全新配置）时归一为 "opus" 并写回：否则下面的
+        // `profiles.get_mut("")` 落空 → provider 不会绑到 active profile，
+        // 文件里也不记录 active_alias（靠 "第一个 provider" 兜底，多 provider 时会错）。
+        let active_alias = crate::kit::panels::model::list::effective_alias(&cfg.config);
+        if cfg.config.active_alias != active_alias {
+            cfg.config.active_alias = active_alias.clone();
+        }
 
         if is_new {
             // New 路径：校验 provider_id 非空后 push 新 ProviderConfig，自动激活
@@ -71,8 +78,7 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
             };
             cfg.config.providers.push(new_config);
             // 激活：写入 active profile 的 provider
-            let alias = cfg.config.active_alias.clone();
-            if let Some(profile) = cfg.config.profiles.get_mut(&alias) {
+            if let Some(profile) = cfg.config.profiles.get_mut(&active_alias) {
                 profile.provider = es.provider_id.clone();
             }
         } else {
@@ -96,16 +102,14 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
                 let active_profile_provider = cfg
                     .config
                     .profiles
-                    .get(&cfg.config.active_alias)
+                    .get(&active_alias)
                     .map(|p| p.provider.clone())
                     .unwrap_or_default();
                 if active_profile_provider == es.original_provider_id
                     && es.provider_id != es.original_provider_id
+                    && let Some(profile) = cfg.config.profiles.get_mut(&active_alias)
                 {
-                    let alias = cfg.config.active_alias.clone();
-                    if let Some(profile) = cfg.config.profiles.get_mut(&alias) {
-                        profile.provider = es.provider_id.clone();
-                    }
+                    profile.provider = es.provider_id.clone();
                 }
             }
         }
@@ -173,10 +177,12 @@ pub(super) fn refresh_provider_list() {
         return;
     };
     let cfg = handle.read();
+    // active_alias 为空（全新配置）时归一，否则 profiles.get("") 落空 → 列表里没有 active 标记
+    let active_alias = crate::kit::panels::model::list::effective_alias(&cfg.config);
     let active_profile_provider = cfg
         .config
         .profiles
-        .get(&cfg.config.active_alias)
+        .get(&active_alias)
         .map(|p| p.provider.clone())
         .unwrap_or_default();
     let updated_providers: Vec<ProviderSummary> = cfg
