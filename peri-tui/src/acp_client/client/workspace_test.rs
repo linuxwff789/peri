@@ -373,6 +373,25 @@ async fn model_changes_use_host_supported_session_config_rpc() {
 }
 
 #[tokio::test]
+async fn model_choice_uses_session_scoped_config_rpc() {
+    // pi 式列表切模型：必须走会话级 set_config_option（host 会路由到会话自己的 cfg），
+    // 否则运行中的会话拿不到新的 profiles，只能退出重进。
+    let (client, server) = client();
+    client.lifecycle.force_stable("feature-session", false);
+    let change = client.clone();
+    let task = tokio::spawn(async move { change.set_model_choice("gproxy", "bai/x").await });
+    let (id, params) = request(&server, "session/set_config_option").await;
+    assert_eq!(params["sessionId"], "feature-session");
+    assert_eq!(params["configId"], "model_choice");
+    assert_eq!(
+        params["value"],
+        json!({"provider": "gproxy", "model": "bai/x"}).to_string()
+    );
+    server.send_response(id, Ok(json!({}))).await.unwrap();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn permission_labels_translate_to_acp_mode_identifiers() {
     let (client, server) = client();
     client.lifecycle.force_stable("feature-session", false);

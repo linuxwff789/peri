@@ -216,3 +216,83 @@ async fn test_update_config_persistence_failure_leaves_state_unchanged() {
     assert_eq!(*cfg.peri_config.read(), config);
     assert_eq!(cfg.provider.read().model_name(), "old");
 }
+
+/// [回归测试] 会话级 `model_choice`：直接改**本会话** active 档位的 provider +
+/// model，运行中的会话下一轮就用新模型（不必退出重进）。
+///
+/// 背景：sessionless 的 `session/update_config` 只把 `providers` 同步进会话环境，
+/// `profiles` 保留会话自己的选择 —— 所以 TUI 光靠 update_config 切模型，会话仍用旧模型。
+#[tokio::test]
+#[serial]
+async fn test_set_config_option_model_choice_switches_running_session() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let _home = HomeDirGuard::set(tmp.path());
+    let work = tmp.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let config = make_peri_config_with_provider(make_provider_config(
+        "alpha",
+        "openai",
+        "secret",
+        "m-old",
+    ));
+    let provider = LlmProvider::from_config(&config).unwrap();
+    let mut cfg = make_server_config(config.clone(), provider, &tmp).await;
+    cfg.workspace_assembly = Some(crate::host::assemble::WorkspaceAssembly {
+        startup_cwd: work.to_str().unwrap().to_owned(),
+        bare: true,
+        mcp_profile: peri_middlewares::mcp::apps::McpCapabilityProfile::disabled(),
+    });
+    let transport: Arc<dyn crate::transport::AcpTransport> = Arc::new(MockTransport::default());
+    let mut sessions = HashMap::new();
+    let created = handle_request(
+        "session/new",
+        &json!({"cwd": work}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+
+    handle_request(
+        "session/set_config_option",
+        &json!({
+            "sessionId": id,
+            "configId": "model_choice",
+            "value": json!({"provider": "alpha", "model": "m-new"}).to_string(),
+        }),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+
+    let state = &sessions[&id];
+    let environment = state.environment.as_ref().expect("session environment");
+    {
+        let env_cfg = environment.cfg.peri_config.read();
+        assert_eq!(env_cfg.config.active_alias, "opus", "空 alias 归一为 opus");
+        let profile = env_cfg.config.profiles.get("opus").unwrap();
+        assert_eq!(profile.provider, "alpha");
+        assert_eq!(profile.model.as_deref(), Some("m-new"));
+    }
+    assert_eq!(
+        environment.cfg.provider.read().model_name(),
+        "m-new",
+        "运行中会话的 provider 必须换成新模型"
+    );
+
+    // 非法 value：不 panic、不改动
+    handle_request(
+        "session/set_config_option",
+        &json!({"sessionId": id, "configId": "model_choice", "value": "not-json"}),
+        &cfg,
+        &mut sessions,
+        &transport,
+    )
+    .await
+    .unwrap();
+    assert_eq!(environment.cfg.provider.read().model_name(), "m-new");
+}

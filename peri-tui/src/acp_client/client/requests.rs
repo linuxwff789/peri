@@ -221,6 +221,17 @@ impl AcpTuiClient {
         Ok(())
     }
 
+    /// 会话级显式模型选择（pi 式扁平列表用）：把 active 档位绑到 `(provider, model)`。
+    ///
+    /// 走 `session/set_config_option`（`configId = "model_choice"`）——host 侧该请求
+    /// 被路由到**会话自己的** cfg，因此运行中的会话下一轮就用新模型；
+    /// 而 sessionless 的 `update_config` 只同步 `providers` 进会话环境，
+    /// `profiles` 不动（会话拥有自己的模型选择），切了要退出重进。
+    pub async fn set_model_choice(&self, provider_id: &str, model: &str) -> Result<(), AcpError> {
+        let value = json!({ "provider": provider_id, "model": model }).to_string();
+        self.set_config_option("model_choice", &value).await
+    }
+
     /// Cancel the currently running prompt.
     pub async fn cancel(&self) -> Result<(), AcpError> {
         let _operation = self.lifecycle.operation_gate().lock().await;

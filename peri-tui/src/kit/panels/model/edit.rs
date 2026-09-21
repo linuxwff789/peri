@@ -88,11 +88,27 @@ pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
     let Some(profile) = cfg.config.profiles.get_mut(&alias) else {
         return;
     };
-    profile.provider = target_provider;
+    profile.provider = target_provider.clone();
     profile.model = Some(model.to_string());
     let snap = cfg.clone();
     drop(cfg);
     commit_snapshot(snap, ModelChange::ProfileField(alias));
+    // 运行中的会话：把这次选择同步到会话自己的配置。host 侧 sessionless 的
+    // `update_config` 只把 providers 同步进会话环境，`profiles` 不动（会话拥有
+    // 自己的模型选择）——不同步的话下一轮还在用旧模型，用户以为“切了没反应”。
+    if let Some(client) = ACP_CLIENT_HANDLE
+        .get()
+        .filter(|client| client.has_session())
+    {
+        let client = client.clone();
+        let provider = target_provider;
+        let model = model.to_string();
+        tokio::spawn(async move {
+            if let Err(error) = client.set_model_choice(&provider, &model).await {
+                tracing::warn!(%error, "ModelPanel: session model_choice push failed");
+            }
+        });
+    }
     if adopted {
         *NOTIFICATION.state().write() = Some(Notification {
             message: i18n::tr("model-panel-env-adopted"),

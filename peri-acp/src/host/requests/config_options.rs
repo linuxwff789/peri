@@ -14,6 +14,14 @@ use crate::dispatch::config_update::make_config_options;
 use crate::provider::LlmProvider;
 use crate::transport::types::AcpError;
 
+/// 解析 `model_choice` 的 value：`{"provider":"…","model":"…"}`（两者都非空）。
+fn parse_model_choice(value: &str) -> Option<(String, String)> {
+    let parsed: Value = serde_json::from_str(value).ok()?;
+    let provider = parsed.get("provider")?.as_str()?.trim().to_string();
+    let model = parsed.get("model")?.as_str()?.trim().to_string();
+    (!provider.is_empty() && !model.is_empty()).then_some((provider, model))
+}
+
 fn persist_config(cfg: &AcpServerConfig) {
     let c = cfg.peri_config.read();
     // 写回当前生效层：路径决策在 ConfigSource 加载时一次性确定（工作区存在则
@@ -78,6 +86,46 @@ pub(crate) async fn handle_set_config_option(
             }
             persist_config(cfg);
         }
+        // 会话级显式模型选择（pi 式扁平列表用）：value = {"provider":"…","model":"…"}。
+        //
+        // 与 "model"（切档位别名）不同：这里直接改**本会话** active 档位的 provider +
+        // model 并重建 provider。会话拥有自己的模型选择，所以必须走会话级 cfg
+        // （请求由 requests.rs 路由到 SessionEnvironment.cfg）——否则运行中的会话
+        // 仍用旧模型，用户只能退出重进。
+        "model_choice" => match parse_model_choice(value) {
+            Some((provider_id, model)) => {
+                let alias = {
+                    let mut c = cfg.peri_config.write();
+                    if c.config.active_alias.trim().is_empty() {
+                        c.config.active_alias = "opus".to_string();
+                    }
+                    let alias = c.config.active_alias.clone();
+                    if let Some(profile) = c.config.profiles.get_mut(&alias) {
+                        profile.provider = provider_id.clone();
+                        profile.model = Some(model.clone());
+                    }
+                    alias
+                };
+                let new_provider = {
+                    let c = cfg.peri_config.read();
+                    LlmProvider::from_config_for_alias(&c, &alias)
+                };
+                if let Some(new_provider) = new_provider {
+                    info!(
+                        %provider_id,
+                        %model,
+                        alias = %alias,
+                        "Model choice changed via configOption"
+                    );
+                    *cfg.provider.write() = new_provider;
+                }
+                if let Some(s) = sessions.get_mut(session_id) {
+                    s.agent_pool.invalidate();
+                }
+                persist_config(cfg);
+            }
+            None => warn!(value, "model_choice configOption: invalid value"),
+        },
         "thinking_effort" => {
             apply_profile_effort(&cfg.peri_config, value);
             // 同步更新 LlmProvider（thinking 变更需要重建 provider）
