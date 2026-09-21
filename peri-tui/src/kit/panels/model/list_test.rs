@@ -163,8 +163,9 @@ fn active_target_falls_back_to_first_provider_and_alias() {
     let cfg = config(vec![provider("alpha", ["f", "o", "s", "h"])], "opus");
     // Profile.provider 为空 → 第一个 provider；Profile.model 未设置 →
     // provider 同档位映射（opus → "o"）。
+    let providers = effective_providers(&cfg.config);
     assert_eq!(
-        active_target(&cfg.config, "opus"),
+        active_target(&cfg.config, "opus", &providers),
         ("alpha".to_string(), "o".to_string())
     );
 }
@@ -205,4 +206,26 @@ fn build_choices_normalizes_empty_active_alias() {
         .collect();
     assert_eq!(current, vec!["o"], "空 active_alias → 回退 opus 档");
     assert_eq!(effective_alias(&cfg.config), "opus");
+}
+
+#[test]
+fn active_target_uses_env_synthesized_provider_scope() {
+    // 配置里没有 provider（env 起 peri）时，用「有效 provider」列表解析 active ——
+    // 这样列表里的 ● 会落在 env 端点真正在用的模型上，而不是兜底别名行。
+    let cfg = config(vec![], "opus");
+    let env_provider = ProviderConfig {
+        id: "env".to_string(),
+        provider_type: "openai".to_string(),
+        base_url: "http://34.81.77.240:8787/v1".to_string(),
+        models: ProviderModels {
+            opus: "bai/glm-5.3-flash".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let providers = vec![env_provider];
+    assert_eq!(
+        active_target(&cfg.config, "opus", &providers),
+        ("env".to_string(), "bai/glm-5.3-flash".to_string())
+    );
 }

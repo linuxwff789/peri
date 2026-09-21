@@ -75,19 +75,25 @@ pub(crate) fn effective_alias(app: &AppConfig) -> String {
 
 /// active 档位解析出的 (provider_id, model)。
 ///
-/// 与 `edit.rs` 的解析规则一致：Profile.provider 为空 → 第一个 provider；
+/// `providers` 用「有效 provider 列表」（配置 providers，为空时含 env 合成 provider）——
+/// 否则 env 场景下 active 会解析成空 id，列表里的 ● 会落在兜底行而不是真正在用的模型。
+/// 解析规则与 `edit.rs` 一致：Profile.provider 为空 → 第一个 provider；
 /// Profile.model > provider.models 同档位映射 > alias 名。
-pub(crate) fn active_target(app: &AppConfig, alias: &str) -> (String, String) {
+pub(crate) fn active_target(
+    app: &AppConfig,
+    alias: &str,
+    providers: &[ProviderConfig],
+) -> (String, String) {
     let profile = app.profiles.get(alias);
     let provider = profile
         .and_then(|pf| {
             if pf.provider.is_empty() {
-                app.providers.first()
+                providers.first()
             } else {
-                app.providers.iter().find(|p| p.id == pf.provider)
+                providers.iter().find(|p| p.id == pf.provider)
             }
         })
-        .or_else(|| app.providers.first());
+        .or_else(|| providers.first());
     let provider_id = provider.map(|p| p.id.clone()).unwrap_or_default();
     let model = profile
         .and_then(|pf| pf.model.clone().filter(|m| !m.is_empty()))
@@ -114,8 +120,8 @@ pub(crate) fn build_choices(
     } else {
         active_alias.to_string()
     };
-    let (active_pid, active_model) = active_target(app, &active_alias);
     let providers = effective_providers(app);
+    let (active_pid, active_model) = active_target(app, &active_alias, &providers);
     let mut out: Vec<ModelChoice> = Vec::new();
 
     for provider in &providers {
