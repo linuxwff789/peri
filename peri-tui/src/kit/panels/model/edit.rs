@@ -60,6 +60,7 @@ pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
         cfg.config.active_alias = alias.clone();
     }
     let mut adopted = false;
+    let mut key_from_env = false;
     let target_provider = if cfg.config.providers.iter().any(|p| p.id == provider_id) {
         provider_id.to_string()
     } else if let Some(env_id) = super::fetch::adopt_env_provider(&mut cfg.config) {
@@ -72,6 +73,18 @@ pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
             .map(|p| p.id.clone())
             .unwrap_or_default()
     };
+    // provider 没填 apiKey 时回退环境变量（与登录探测 / 列表拉取一致）——
+    // 空 key 的 provider 在 `from_config_for_alias` 里不可用，ACP 会拒切换。
+    if let Some(provider) = cfg.config.providers.iter_mut().find(|p| p.id == target_provider)
+        && provider.api_key.trim().is_empty()
+    {
+        let key =
+            crate::kit::panels::login::probe::resolve_api_key(&provider.provider_type, "");
+        if !key.is_empty() {
+            provider.api_key = key;
+            key_from_env = true;
+        }
+    }
     let Some(profile) = cfg.config.profiles.get_mut(&alias) else {
         return;
     };
@@ -83,6 +96,11 @@ pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
     if adopted {
         *NOTIFICATION.state().write() = Some(Notification {
             message: i18n::tr("model-panel-env-adopted"),
+            until: Instant::now() + Duration::from_secs(3),
+        });
+    } else if key_from_env {
+        *NOTIFICATION.state().write() = Some(Notification {
+            message: i18n::tr("login-api-key-from-env"),
             until: Instant::now() + Duration::from_secs(3),
         });
     }
