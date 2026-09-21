@@ -61,6 +61,18 @@ fn raw_tier<'a>(p: &'a ProviderConfig, tier: &str) -> &'a str {
     }
 }
 
+/// active 档位名：空串（全新配置 / 从未写盘）回退 `"opus"`。
+///
+/// `AppConfig::default()` 的 `active_alias` 是空串（serde 的 default 只在反序列化时生效），
+/// 而 profile 查找只认四个档位名——不归一化的话面板会变成只读（改什么都不落盘）。
+pub(crate) fn effective_alias(app: &AppConfig) -> String {
+    if app.active_alias.trim().is_empty() {
+        "opus".to_string()
+    } else {
+        app.active_alias.clone()
+    }
+}
+
 /// active 档位解析出的 (provider_id, model)。
 ///
 /// 与 `edit.rs` 的解析规则一致：Profile.provider 为空 → 第一个 provider；
@@ -97,7 +109,12 @@ pub(crate) fn build_choices(
     remote: &[(String, String)],
 ) -> Vec<ModelChoice> {
     let app = &cfg.config;
-    let (active_pid, active_model) = active_target(app, active_alias);
+    let active_alias = if active_alias.trim().is_empty() {
+        effective_alias(app)
+    } else {
+        active_alias.to_string()
+    };
+    let (active_pid, active_model) = active_target(app, &active_alias);
     let providers = effective_providers(app);
     let mut out: Vec<ModelChoice> = Vec::new();
 

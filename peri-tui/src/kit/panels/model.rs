@@ -75,7 +75,7 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     let _snapshot = hooks.use_atom(&SERVICE_SNAPSHOT);
     let active_alias = PERI_CONFIG_HANDLE
         .get()
-        .map(|h| h.read().config.active_alias.clone())
+        .map(|h| list::effective_alias(&h.read().config))
         .unwrap_or_else(|| "opus".to_string());
     let _lang_ver = hooks.use_atom(&LANG_VERSION);
     // 端点模型列表缓存（`Ctrl+R` / 首次打开自动拉取；拉取完成写入即重绘）
@@ -97,7 +97,7 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
             .entries
             .clone();
         let cfg = handle.read();
-        let alias = cfg.config.active_alias.clone();
+        let alias = list::effective_alias(&cfg.config);
         build_choices(&cfg, &alias, &remote)
             .iter()
             .position(|choice| choice.current)
@@ -184,7 +184,7 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                 }
                 let current_alias = PERI_CONFIG_HANDLE
                     .get()
-                    .map(|h| h.read().config.active_alias.clone())
+                    .map(|h| list::effective_alias(&h.read().config))
                     .unwrap_or_else(|| "opus".to_string());
                 match key.code {
                     KeyCode::Esc => {

@@ -53,7 +53,12 @@ pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
         return;
     };
     let mut cfg = handle.write();
-    let alias = cfg.config.active_alias.clone();
+    // active_alias 为空（全新配置）时归一为 "opus" 并写回，否则 profile 查找落空、
+    // 切换静默失败（面板看起来只读）。
+    let alias = super::list::effective_alias(&cfg.config);
+    if cfg.config.active_alias != alias {
+        cfg.config.active_alias = alias.clone();
+    }
     let mut adopted = false;
     let target_provider = if cfg.config.providers.iter().any(|p| p.id == provider_id) {
         provider_id.to_string()

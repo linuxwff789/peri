@@ -191,3 +191,18 @@ fn build_choices_appends_remote_models_per_provider() {
     assert!(choices[4].tiers.is_empty(), "端点模型没有档位徽标");
     assert!(!choices[4].current);
 }
+
+#[test]
+fn build_choices_normalizes_empty_active_alias() {
+    // 全新配置（AppConfig::default）的 active_alias 是空串——必须回退到 opus 档，
+    // 否则 profile 查找全部落空，面板变成只读（切换静默失败）。
+    let cfg = config(vec![provider("alpha", ["f", "o", "s", "h"])], "");
+    let choices = build_choices(&cfg, "", &[]);
+    let current: Vec<&str> = choices
+        .iter()
+        .filter(|c| c.current)
+        .map(|c| c.model.as_str())
+        .collect();
+    assert_eq!(current, vec!["o"], "空 active_alias → 回退 opus 档");
+    assert_eq!(effective_alias(&cfg.config), "opus");
+}
