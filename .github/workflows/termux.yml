@@ -27,7 +27,7 @@ jobs:
               run: cargo test -p peri-tui --lib -- model
 
     build:
-        name: Build peri (aarch64-linux-gnu)
+        name: Build peri (aarch64-linux-gnu / glibc)
         runs-on: ubuntu-24.04-arm
         steps:
             - uses: actions/checkout@v4
@@ -62,10 +62,145 @@ jobs:
                   path: dist/
                   retention-days: 30
 
+    build-native:
+        name: Build peri (aarch64-linux-android / Termux bionic)
+        # Android NDK's Linux host toolchain is x86_64; this job deliberately
+        # differs from the glibc job above. The output links against Android's
+        # /system/bin/linker64 and must not need Termux glibc at runtime.
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Android SDK/NDK
+              uses: android-actions/setup-android@v3
+
+            - name: Install Android NDK
+              run: sdkmanager "ndk;27.2.12479018"
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: aarch64-linux-android
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  key: termux-native-aarch64
+
+            # arboard 3.6.1 has no Android clipboard backend. The runtime
+            # already falls back when clipboard access fails; use a no-op
+            # compile-time backend for the native Termux artifact only.
+            - name: Add Android arboard stub
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  STUB="$RUNNER_TEMP/arboard-stub"
+                  mkdir -p "$STUB/src"
+                  cat > "$STUB/Cargo.toml" <<'EOF'
+                  [package]
+                  name = "arboard"
+                  version = "3.6.1"
+                  edition = "2021"
+                  [lib]
+                  path = "src/lib.rs"
+                  EOF
+                  cat > "$STUB/src/lib.rs" <<'EOF'
+                  use std::borrow::Cow;
+
+                  #[derive(Debug)]
+                  pub struct Error(pub &'static str);
+                  impl std::fmt::Display for Error {
+                      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                          write!(f, "arboard Android stub: {}", self.0)
+                      }
+                  }
+                  impl std::error::Error for Error {}
+
+                  #[derive(Debug, Clone)]
+                  pub struct ImageData<'a> {
+                      pub width: usize,
+                      pub height: usize,
+                      pub bytes: Cow<'a, [u8]>,
+                  }
+
+                  #[derive(Debug, Default)]
+                  pub struct Clipboard {
+                      text: Option<String>,
+                      image: Option<(usize, usize, Vec<u8>)>,
+                  }
+                  impl Clipboard {
+                      pub fn new() -> Result<Self, Error> { Ok(Self::default()) }
+                      pub fn set_text<'a, T: Into<Cow<'a, str>>>(&mut self, text: T) -> Result<(), Error> {
+                          self.text = Some(text.into().into_owned());
+                          Ok(())
+                      }
+                      pub fn get_text(&mut self) -> Result<String, Error> {
+                          self.text.clone().ok_or(Error("no text"))
+                      }
+                      pub fn set_image(&mut self, image: ImageData<'_>) -> Result<(), Error> {
+                          self.image = Some((image.width, image.height, image.bytes.into_owned()));
+                          Ok(())
+                      }
+                      pub fn get_image(&mut self) -> Result<ImageData<'static>, Error> {
+                          match &self.image {
+                              Some((width, height, bytes)) => Ok(ImageData {
+                                  width: *width,
+                                  height: *height,
+                                  bytes: Cow::Owned(bytes.clone()),
+                              }),
+                              None => Err(Error("no image")),
+                          }
+                      }
+                      pub fn clear(&mut self) -> Result<(), Error> {
+                          self.text = None;
+                          self.image = None;
+                          Ok(())
+                      }
+                  }
+                  EOF
+                  cat > "$RUNNER_TEMP/android-cargo-config.toml" <<EOF
+                  [patch.crates-io]
+                  arboard = { path = "$STUB" }
+                  EOF
+
+            - name: Configure Android linker
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+                  TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+                  echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+                  echo "CC_aarch64_linux_android=$TOOLCHAIN/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+                  echo "AR_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ar" >> "$GITHUB_ENV"
+
+            - name: Build native Termux binary
+              run: |
+                  cargo --config "$RUNNER_TEMP/android-cargo-config.toml" \
+                    build -p peri-tui --release --target aarch64-linux-android
+
+            - name: Package native Termux binary
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mkdir -p dist
+                  cp target/aarch64-linux-android/release/peri dist/peri-termux-aarch64
+                  chmod +x dist/peri-termux-aarch64
+                  tar -czf dist/peri-termux-aarch64.tar.gz -C dist peri-termux-aarch64
+                  (cd dist && sha256sum peri-termux-aarch64 > peri-termux-aarch64.sha256)
+                  file dist/peri-termux-aarch64
+                  readelf -l dist/peri-termux-aarch64 | grep -A1 INTERP
+                  ls -lh dist/
+
+            - name: Upload native artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: peri-termux-aarch64-native
+                  path: dist/
+                  retention-days: 30
+
     release:
         name: Attach to release
         if: startsWith(github.ref, 'refs/tags/termux-v')
-        needs: build
+        needs: [build, build-native]
         runs-on: ubuntu-latest
         permissions:
             contents: write

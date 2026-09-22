@@ -456,6 +456,9 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         Line::from(i18n::tr("panel-model-nav-hint")).fg(theme.semantic.text.dim)
     };
 
+    // ── pi 式列表：effort 选择行（仅列表视图；档位编辑器已有 Effort 字段）──
+    let effort_row = list::effort_line(&current_effort, &theme);
+
     // ── pi 式列表：过滤 + 渲染（选择下标在过滤后列表上；越界时钳制）──
     let choices = cfg_snapshot
         .as_ref()
@@ -506,6 +509,11 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         View(height: Constraint::Length(1)) {
             Text(text: title_line)
         }
+        if is_list {
+            View(height: Constraint::Length(1)) {
+                Text(text: effort_row)
+            }
+        }
         View(height: Constraint::Length(1)) {}
         if is_list {
             View(width: Constraint::Fill(1), height: Constraint::Fill(1)) {
@@ -548,9 +556,10 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     })
 }
 
-/// 列表视图可见行数：内容区高 = 面板高 - 上下边框（2），减去标题/空行/提示（3）。
+/// 列表视图可见行数：内容区高 = 面板高 - 上下边框（2），
+/// 减去标题 / effort 行 / 空行 / 提示（4）。
 fn list_visible_rows(panel_height: u16) -> usize {
-    (panel_height.saturating_sub(5) as usize).max(3)
+    (panel_height.saturating_sub(6) as usize).max(3)
 }
 
 /// 模型名内嵌 effort 后缀（如 "gpt-5.6-luna high"）：主色用 model_info，后缀用 model accent 色高亮。

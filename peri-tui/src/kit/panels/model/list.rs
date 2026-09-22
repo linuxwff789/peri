@@ -358,6 +358,28 @@ pub(crate) fn search_line(
     Line::from(spans)
 }
 
+/// 列表视图的 effort 选择行：`  Effort  ‹ xhigh ›   ←/→ 调整`
+///
+/// effort 的持有者是 active 档位的 `profiles[alias].effort`（不是单个模型），
+/// 所以它独立成行、与模型列表正交——选中哪个模型不影响当前档位值。
+pub(crate) fn effort_line(effort: &str, theme: &ThemeDefinition) -> Line<'static> {
+    // 值用 effort 语义色，与档位编辑器左栏的摘要行保持一致。
+    Line::from(vec![
+        Span::styled("  ", Style::new()),
+        Span::styled(
+            i18n::tr("panel-model-list-effort"),
+            Style::new().fg(theme.semantic.text.muted),
+        ),
+        Span::styled(" ‹ ", Style::new().fg(theme.semantic.text.dim)),
+        Span::styled(effort.to_string(), Style::new().fg(theme.semantic.effort).bold()),
+        Span::styled(" ›", Style::new().fg(theme.semantic.text.dim)),
+        Span::styled(
+            i18n::tr("panel-model-list-effort-hint"),
+            Style::new().fg(theme.semantic.text.dim),
+        ),
+    ])
+}
+
 /// 列表视图事件（键盘 + 鼠标）。
 ///
 /// 选择下标 `selected` 是**过滤后**列表的下标；命中数据每帧从配置重算，
@@ -453,6 +475,16 @@ pub(super) fn handle_list_event(
                 *sel = sel.saturating_sub(visible.max(1));
                 EventResult::Consumed
             }
+            // ←/→：调整 active 档位的 thinking 档位。这两个键在列表里原本空着
+            //（搜索靠字符输入、选择靠 ↑/↓），所以拿来切 effort 不会冲突。
+            (KeyModifiers::NONE, KeyCode::Left) => {
+                super::edit::cycle_effort(false);
+                EventResult::Consumed
+            }
+            (KeyModifiers::NONE, KeyCode::Right) => {
+                super::edit::cycle_effort(true);
+                EventResult::Consumed
+            }
             (KeyModifiers::NONE, KeyCode::PageDown) => {
                 let mut sel = selected.write();
                 let step = visible.max(1);
@@ -498,7 +530,8 @@ fn filtered_snapshot(query: &str) -> (Vec<usize>, Vec<ModelChoice>) {
 
 fn list_layout(indices: &[usize], selected: usize, visible: usize) -> ListLayout {
     ListLayout {
-        header_rows: 2,
+        // 标题行（搜索框）+ effort 行 + 空行。
+        header_rows: 3,
         item_rows: 1,
         footer_rows: 1,
         visible_items: visible as u16,

@@ -392,6 +392,23 @@ async fn model_choice_uses_session_scoped_config_rpc() {
 }
 
 #[tokio::test]
+async fn thinking_effort_uses_session_scoped_config_rpc() {
+    // thinking 档位与 model_choice 同源：effort 存在 profiles[alias] 里，
+    // 而 sessionless 的 update_config 只同步 providers 进会话环境——
+    // 必须走会话级 set_config_option，否则运行中的会话改档位不生效。
+    let (client, server) = client();
+    client.lifecycle.force_stable("feature-session", false);
+    let change = client.clone();
+    let task = tokio::spawn(async move { change.set_thinking_effort("xhigh").await });
+    let (id, params) = request(&server, "session/set_config_option").await;
+    assert_eq!(params["sessionId"], "feature-session");
+    assert_eq!(params["configId"], "thinking_effort");
+    assert_eq!(params["value"], "xhigh");
+    server.send_response(id, Ok(json!({}))).await.unwrap();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn permission_labels_translate_to_acp_mode_identifiers() {
     let (client, server) = client();
     client.lifecycle.force_stable("feature-session", false);

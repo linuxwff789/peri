@@ -16,9 +16,62 @@ use fluent_bundle::FluentValue;
 use std::time::{Duration, Instant};
 
 /// Effort 五级
-const EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+///
+/// `pub(super)`：扁平列表的 effort 选择行（`list.rs`）与档位编辑器的 Effort 字段
+/// 必须用同一组取值，否则两处会各写一套、出现列表里切得出来但编辑器里找不到的值。
+pub(super) const EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 /// Max tokens 预设
 const MAX_TOKEN_PRESETS: &[u32] = &[4096, 8192, 16000, 32000, 64000];
+
+/// 把 active 档位的 effort 前/后移一档（循环）。
+///
+/// 立即写入 + 持久化 + 推 ACP，与档位编辑器的 `edit_field(FIELD_EFFORT, ..)` 走
+/// **同一条**提交路径，避免两处实现漂移。返回新值（无法写入时 None）。
+pub(super) fn cycle_effort(forward: bool) -> Option<String> {
+    let handle = PERI_CONFIG_HANDLE.get()?;
+    let mut cfg = handle.write();
+    // active_alias 为空（全新配置）时归一，否则 profile 查找落空、改动静默丢失。
+    let alias = super::list::effective_alias(&cfg.config);
+    if cfg.config.active_alias != alias {
+        cfg.config.active_alias = alias.clone();
+    }
+    let cur = cfg
+        .config
+        .profiles
+        .get(&alias)
+        .map(|p| p.effort.clone())
+        .unwrap_or_else(|| "xhigh".to_string());
+    let idx = EFFORT_LEVELS.iter().position(|e| *e == cur).unwrap_or(0);
+    let next = EFFORT_LEVELS
+        [(idx + if forward { 1 } else { EFFORT_LEVELS.len() - 1 }) % EFFORT_LEVELS.len()]
+    .to_string();
+    if let Some(profile) = cfg.config.profiles.get_mut(&alias) {
+        profile.effort = next.clone();
+    }
+    let snap = cfg.clone();
+    drop(cfg);
+    commit_snapshot(snap, ModelChange::ProfileField(alias));
+    push_thinking_effort(&next);
+    Some(next)
+}
+
+/// 把 effort 推到会话自己的 cfg。
+///
+/// `commit_snapshot` 里的 `update_config` 只同步 `providers` 进会话环境，
+/// `profiles`（effort 的持有者）不动——运行中的会话因此拿不到新档位。
+/// 与 `apply_model_choice` 推 `set_model_choice` 同源，此处推 `thinking_effort`。
+pub(super) fn push_thinking_effort(effort: &str) {
+    let Some(client) = ACP_CLIENT_HANDLE.get().filter(|c| c.has_session()) else {
+        return;
+    };
+    let client = client.clone();
+    let effort = effort.to_string();
+    tokio::spawn(async move {
+        if let Err(error) = client.set_thinking_effort(&effort).await {
+            tracing::warn!(%error, "ModelPanel: session thinking_effort push failed");
+        }
+    });
+}
 
 /// 切换左侧光标指向的档位为 active profile（立即写入 + 持久化 + 推送 ACP）。
 /// pub(crate)：状态栏模型快速切换弹窗复用此切换逻辑。
@@ -173,6 +226,10 @@ pub(super) fn edit_field(alias: String, field: usize, forward: bool) {
         .map(|p| p.context_1m)
         .unwrap_or(false);
 
+    // effort 改动需要额外推一次会话级 config option（见 `push_thinking_effort`）。
+    // 在 match 内记下新值，待 `commit_snapshot` 释放写锁后再推。
+    let mut new_effort: Option<String> = None;
+
     match field {
         FIELD_PROVIDER => {
             if provider_ids.is_empty() {
@@ -243,8 +300,9 @@ pub(super) fn edit_field(alias: String, field: usize, forward: bool) {
                 [(cur + if forward { 1 } else { EFFORT_LEVELS.len() - 1 }) % EFFORT_LEVELS.len()]
             .to_string();
             if let Some(profile) = cfg.config.profiles.get_mut(&alias) {
-                profile.effort = next;
+                profile.effort = next.clone();
             }
+            new_effort = Some(next);
         }
         FIELD_MAX_TOKENS => {
             let cur = MAX_TOKEN_PRESETS
@@ -271,7 +329,17 @@ pub(super) fn edit_field(alias: String, field: usize, forward: bool) {
     }
     let snap = cfg.clone();
     drop(cfg);
+    // 只有 active profile 的 effort 才属于当前会话；inactive profile 只持久化，
+    // 否则编辑 sonnet/haiku 时会误改当前 opus 会话的 thinking 档位。
+    let push_effort = if snap.config.active_alias == alias {
+        new_effort
+    } else {
+        None
+    };
     commit_snapshot(snap, ModelChange::ProfileField(alias));
+    if let Some(effort) = push_effort {
+        push_thinking_effort(&effort);
+    }
 }
 
 /// Describes only the immediate display changes made by this action.

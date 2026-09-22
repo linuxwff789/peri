@@ -232,6 +232,17 @@ impl AcpTuiClient {
         self.set_config_option("model_choice", &value).await
     }
 
+    /// 会话级 thinking 档位（`low`/`medium`/`high`/`xhigh`/`max`）。
+    ///
+    /// 与 [`set_model_choice`](Self::set_model_choice) 同理：effort 的持有者是
+    /// `profiles[alias].effort`，而 sessionless 的 `update_config` 只同步 `providers`
+    /// 进会话环境、`profiles` 不动——所以光推 update_config 对运行中的会话无效。
+    /// 走 `session/set_config_option`（`configId = "thinking_effort"`）才会被路由到
+    /// 会话自己的 cfg，host 侧随之重建 provider 并 invalidate agent pool。
+    pub async fn set_thinking_effort(&self, effort: &str) -> Result<(), AcpError> {
+        self.set_config_option("thinking_effort", effort).await
+    }
+
     /// Cancel the currently running prompt.
     pub async fn cancel(&self) -> Result<(), AcpError> {
         let _operation = self.lifecycle.operation_gate().lock().await;
