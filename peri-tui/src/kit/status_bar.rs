@@ -652,6 +652,11 @@ fn cwd_basename(cwd: &str) -> String {
 /// - alias 与模型名相同时（配置回退到 alias）只显示一次；
 /// - 模型名尾部已含 effort 后缀（如 `gpt-5.6-luna high`）时不重复追加，
 ///   避免出现 `high high`。
+/// 状态栏模型段的组成部分：**模型名 + 思考等级**。
+///
+/// **不显示档位别名**（opus/sonnet/…）：模型分级已从 UI 去掉，档位名对用户
+/// 没有意义；而且它占 6–7 列，窄终端（手机竖屏约 50 列）下会把
+/// `⚡ tok/s` 挤到换行。只有模型名缺失时才用别名兜底，避免这一段整个空掉。
 fn model_segment_parts(alias: &str, model_name: &str, effort: &str) -> Vec<String> {
     let model = if !model_name.is_empty() {
         model_name
@@ -659,9 +664,6 @@ fn model_segment_parts(alias: &str, model_name: &str, effort: &str) -> Vec<Strin
         alias
     };
     let mut parts = Vec::new();
-    if !alias.is_empty() && alias != model {
-        parts.push(alias.to_string());
-    }
     if !model.is_empty() {
         parts.push(model.to_string());
     }

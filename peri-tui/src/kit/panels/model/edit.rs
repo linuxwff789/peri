@@ -52,6 +52,13 @@ pub(super) fn cycle_effort(forward: bool) -> Option<String> {
     drop(cfg);
     commit_snapshot(snap, ModelChange::ProfileField(alias));
     push_thinking_effort(&next);
+    // 立即投影到状态栏（同 apply_model_choice：不等 2s tick）
+    {
+        let s_handle = SERVICE_SNAPSHOT.state();
+        let mut svc = s_handle.read().clone();
+        svc.effort = next.clone();
+        *s_handle.write() = svc;
+    }
     Some(next)
 }
 
@@ -155,12 +162,22 @@ pub(crate) fn apply_model_choice(provider_id: &str, model: &str) {
     {
         let client = client.clone();
         let provider = target_provider;
-        let model = model.to_string();
+        // 两份：一份给 async push（move 进闭包），一份留给状态栏投影
+        let model_for_push = model.to_string();
+        let model_for_projection = model.to_string();
         tokio::spawn(async move {
-            if let Err(error) = client.set_model_choice(&provider, &model).await {
+            if let Err(error) = client.set_model_choice(&provider, &model_for_push).await {
                 tracing::warn!(%error, "ModelPanel: session model_choice push failed");
             }
         });
+        // 会话切模型是**会话级**变更（不是 host 配置编辑），立即投影到状态栏。
+        // 否则要等 service_snapshot 的下一次 2s tick，用户会以为“切了没反应”。
+        // 注意：与 `project_model_change` 的早退不同——那里是 host 配置编辑，
+        // 不能覆盖活跃会话的投影（见 commit_test 的断言）。
+        let s_handle = SERVICE_SNAPSHOT.state();
+        let mut svc = s_handle.read().clone();
+        svc.model_name = model_for_projection;
+        *s_handle.write() = svc;
     }
     if adopted {
         *NOTIFICATION.state().write() = Some(Notification {
@@ -339,6 +356,11 @@ pub(super) fn edit_field(alias: String, field: usize, forward: bool) {
     commit_snapshot(snap, ModelChange::ProfileField(alias));
     if let Some(effort) = push_effort {
         push_thinking_effort(&effort);
+        // 立即投影（同 cycle_effort）
+        let s_handle = SERVICE_SNAPSHOT.state();
+        let mut svc = s_handle.read().clone();
+        svc.effort = effort;
+        *s_handle.write() = svc;
     }
 }
 

@@ -51,10 +51,10 @@ fn test_cwd_basename_empty() {
 
 #[test]
 fn test_model_segment_parts_full() {
-    // alias + model + effort 三段
+    // 模型 + effort 两段（档位别名不再显示）
     assert_eq!(
         model_segment_parts("opus", "claude-opus-4-20250514", "high"),
-        vec!["opus", "claude-opus-4-20250514", "high"]
+        vec!["claude-opus-4-20250514", "high"]
     );
 }
 
@@ -62,7 +62,7 @@ fn test_model_segment_parts_full() {
 fn test_model_segment_parts_no_effort() {
     assert_eq!(
         model_segment_parts("opus", "claude-opus-4-20250514", ""),
-        vec!["opus", "claude-opus-4-20250514"]
+        vec!["claude-opus-4-20250514"]
     );
 }
 
@@ -71,17 +71,24 @@ fn test_model_segment_parts_model_has_effort_suffix() {
     // 模型名尾部已含 effort 后缀 → 不重复追加
     assert_eq!(
         model_segment_parts("opus", "gpt-5.6-luna high", "high"),
-        vec!["opus", "gpt-5.6-luna high"]
+        vec!["gpt-5.6-luna high"]
     );
 }
 
 #[test]
-fn test_model_segment_parts_alias_equals_model() {
-    // 配置回退到 alias（model_name 为空或等于 alias）→ 只显示一次
+fn test_model_segment_parts_never_shows_tier_alias() {
+    // 模型名存在时，档位别名一律不显示——模型分级已从 UI 去掉，
+    // 且它会把窄终端下的 ⚡ tok/s 挤到换行。
+    assert_eq!(
+        model_segment_parts("sonnet", "live-model-alpha", "high"),
+        vec!["live-model-alpha", "high"]
+    );
+    // 模型名与别名相同时也只出现一次
     assert_eq!(
         model_segment_parts("haiku", "haiku", "medium"),
         vec!["haiku", "medium"]
     );
+    // 模型名缺失时才用别名兜底（否则这一段会整个空掉）
     assert_eq!(
         model_segment_parts("haiku", "", "medium"),
         vec!["haiku", "medium"]
