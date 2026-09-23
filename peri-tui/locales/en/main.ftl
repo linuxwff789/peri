@@ -1188,6 +1188,7 @@ app-note-compact-type-full = Full compaction
 app-note-compact-type-micro = Micro compaction
 app-note-compact-type-smart = Smart compaction
 app-note-agent-failed = Agent execution failed: { $message }
+app-note-agent-failed-model = Agent execution failed (model { $model }): { $message }
 app-note-cache-hit-low = Prompt cache coverage {$pct}% < 80% (req: { $req_id })
 app-note-cache-coverage-low = Prompt cache coverage {$pct}% < 80% — cached {$cached} / input {$input}, uncached {$uncached} (req: {$req_id})
 

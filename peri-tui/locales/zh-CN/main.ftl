@@ -1186,6 +1186,7 @@ app-note-compact-type-full = 完整压缩
 app-note-compact-type-micro = 微压缩
 app-note-compact-type-smart = 智能压缩
 app-note-agent-failed = Agent 执行失败: { $message }
+app-note-agent-failed-model = Agent 执行失败（模型 { $model }）: { $message }
 app-note-cache-hit-low = Prompt cache 覆盖率 {$pct}% < 80%（req: { $req_id }）
 app-note-cache-coverage-low = Prompt cache 覆盖率 {$pct}% < 80% — 已缓存 {$cached} / 输入 {$input}，未缓存 {$uncached}（req: {$req_id}）
 
