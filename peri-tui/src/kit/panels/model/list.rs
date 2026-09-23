@@ -44,8 +44,6 @@ pub(crate) struct ModelChoice {
     pub provider_id: String,
     pub provider_label: String,
     pub model: String,
-    /// 该模型在 provider 档位映射里占用的档位（用于行尾徽标）；手填 model 可为空。
-    pub tiers: Vec<&'static str>,
     /// 是否是当前 active 档位正在使用的组合（行首 ● 标记）。
     pub current: bool,
 }
@@ -157,20 +155,11 @@ pub(crate) fn build_choices(
             }
         }
         for model in models {
-            let tiers: Vec<&'static str> = TIER_ORDER
-                .iter()
-                .copied()
-                .filter(|tier| {
-                    let raw = raw_tier(provider, tier);
-                    !raw.is_empty() && raw == model
-                })
-                .collect();
             let current = provider.id == active_pid && model == active_model;
             out.push(ModelChoice {
                 provider_id: provider.id.clone(),
                 provider_label: provider.display_name().to_string(),
                 model,
-                tiers,
                 current,
             });
         }
@@ -188,7 +177,6 @@ pub(crate) fn build_choices(
                 provider_id: active_pid,
                 provider_label: label,
                 model: active_model,
-                tiers: Vec::new(),
                 current: true,
             },
         );
@@ -272,12 +260,9 @@ pub(crate) fn render_rows(
         let current = if choice.current { "●" } else { " " };
         let prefix = format!(" {mark} {current} ");
         let prefix_width = UnicodeWidthStr::width(prefix.as_str());
-        let badges = choice.tiers.join("·");
-        let right = if badges.is_empty() {
-            choice.provider_label.clone()
-        } else {
-            format!("{badges}  {}", choice.provider_label)
-        };
+        // 不再显示档位徽标（fable·opus·sonnet·haiku）：模型分级已从 UI 去掉，
+        // 用户看到的是扁平模型列表，行尾只需要 provider 归属。
+        let right = choice.provider_label.clone();
         let right_width = UnicodeWidthStr::width(right.as_str());
         let model_width = width
             .saturating_sub(prefix_width + right_width + 1)
@@ -305,13 +290,6 @@ pub(crate) fn render_rows(
             Span::styled(model, model_style),
             Span::raw(" ".repeat(pad)),
         ];
-        if !badges.is_empty() {
-            spans.push(Span::styled(
-                badges,
-                Style::new().fg(theme.semantic.token_context),
-            ));
-            spans.push(Span::raw("  "));
-        }
         spans.push(Span::styled(
             choice.provider_label.clone(),
             Style::new().fg(theme.semantic.text.dim),

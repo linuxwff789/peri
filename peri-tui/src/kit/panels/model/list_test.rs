@@ -54,8 +54,6 @@ fn build_choices_flattens_providers_in_config_order() {
         .map(|c| c.model.as_str())
         .collect();
     assert_eq!(current, vec!["a-opus"]);
-    assert_eq!(choices[1].tiers, vec!["opus"]);
-    assert_eq!(choices[0].tiers, vec!["fable"]);
 }
 
 #[test]
@@ -67,8 +65,6 @@ fn build_choices_dedupes_shared_model_across_tiers() {
     let choices = build_choices(&cfg, "opus", &[]);
     let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
     assert_eq!(models, vec!["same", "other"]);
-    assert_eq!(choices[0].tiers, vec!["fable", "opus", "haiku"]);
-    assert_eq!(choices[1].tiers, vec!["sonnet"]);
 }
 
 #[test]
@@ -98,7 +94,6 @@ fn build_choices_includes_manual_profile_model() {
     let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
     assert_eq!(models, vec!["f", "o", "s", "h", "manual-1"]);
     let manual = choices.last().unwrap();
-    assert!(manual.tiers.is_empty());
     assert!(manual.current);
 }
 
@@ -115,7 +110,6 @@ fn build_choices_prepends_current_when_not_listed_anywhere() {
     assert_eq!(choices[0].provider_id, "alpha");
     assert_eq!(choices[0].model, "ghost-model");
     assert!(choices[0].current);
-    assert!(choices[0].tiers.is_empty());
 }
 
 #[test]
@@ -189,7 +183,6 @@ fn build_choices_appends_remote_models_per_provider() {
     let choices = build_choices(&cfg, "opus", &remote);
     let models: Vec<&str> = choices.iter().map(|c| c.model.as_str()).collect();
     assert_eq!(models, vec!["f", "o", "s", "h", "remote-1"]);
-    assert!(choices[4].tiers.is_empty(), "端点模型没有档位徽标");
     assert!(!choices[4].current);
 }
 
