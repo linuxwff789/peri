@@ -96,9 +96,32 @@ fn StatusBarRow1(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
         }
         spans.push(Span::styled(head.join(" "), model_style));
         if let Some(e) = effort_part {
-            spans.push(Span::styled(format!(" {e}"), model_style));
+            // 思考等级用 effort 语义色 + 粗体，与模型名**区分开**。
+            // 之前与模型名同色，看上去像模型名的一部分，用户找不到「思考等级」。
+            spans.push(Span::styled(
+                format!(" {e}"),
+                Style::default()
+                    .fg(theme.effort)
+                    .add_modifier(Modifier::BOLD),
+            ));
         }
         model_end = spans.len();
+    }
+
+    // 3b. 模型输出速率（tok/s）——生成中为按字符估算，带 `~` 前缀；
+    //     结束后若拿到真实 output_tokens 则不带 `~`。
+    if let Some(speed) = &snap.speed {
+        spans.push(separator());
+        let rate = if speed.tps >= 100.0 {
+            format!("{:.0}", speed.tps)
+        } else {
+            format!("{:.1}", speed.tps)
+        };
+        let prefix = if speed.approx { "~" } else { "" };
+        spans.push(Span::styled(
+            format!("⚡ {prefix}{rate} tok/s"),
+            Style::default().fg(THEME_ATOM.state().read().semantic.accent),
+        ));
     }
 
     // 4. 当前 goal（简洁状态，点击打开详情）

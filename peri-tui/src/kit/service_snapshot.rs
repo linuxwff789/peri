@@ -178,7 +178,8 @@ async fn tick_once(
     };
 
     // ── 2. provider/model 从 peri_config 派生 ──────────────────────────
-    let (mut provider_name, mut model_alias, mut model_name, mut effort) =
+    // effort 不再从会话元数据覆盖，所以不需要 mut。
+    let (mut provider_name, mut model_alias, mut model_name, effort) =
         derive_provider_and_model(&src.peri_config);
 
     // ── 3. permission_mode ─────────────────────────────────────────────
@@ -325,11 +326,11 @@ async fn tick_once(
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or_default()
                         .to_string();
-                    effort = metadata
-                        .get("effort")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
+                    // effort 不取自会话元数据：host 侧 metadata 的 effort 来自
+                    // **host-global** provider（`cfg.provider`），而会话拥有自己的
+                    // cfg——会话切过模型/档位后 host-global 可能是旧值，状态栏会显示
+                    // 错的思考等级。TUI 侧 `peri_config`（`derive_provider_and_model`）
+                    // 才是用户刚在 /model 里改的那个事实源，这里保留它不覆盖。
                     slow.current_title = metadata
                         .get("title")
                         .and_then(serde_json::Value::as_str)
@@ -341,7 +342,7 @@ async fn tick_once(
                     model_alias.clear();
                     model_name.clear();
                     provider_name.clear();
-                    effort.clear();
+                    // effort 保留（来自 TUI 配置，不依赖会话元数据查询成败）
                     tracing::warn!(%error, "session metadata lookup failed");
                 }
             }
@@ -363,6 +364,7 @@ async fn tick_once(
         mcp,
         cron_total,
         cron_enabled,
+        speed: crate::kit::model_speed::snapshot(),
     };
 
     if ACTIVE_EXECUTION_CWD.state().read().clone() != active_cwd

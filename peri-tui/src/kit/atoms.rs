@@ -89,6 +89,9 @@ pub struct ServiceSnapshot {
     pub mcp: McpStatusSnapshot,
     pub cron_total: usize,
     pub cron_enabled: usize,
+    /// 模型输出速率（tok/s）。生成中为按字符估算，结束后优先用真实
+    /// output_tokens。`None` = 还没生成过，状态栏不显示这一段。
+    pub speed: Option<crate::kit::model_speed::ModelSpeed>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

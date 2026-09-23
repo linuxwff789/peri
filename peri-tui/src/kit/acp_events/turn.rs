@@ -20,6 +20,7 @@ pub(super) fn handle_turn_done(state: &mut BridgeState) {
     state.last_pushed_text_len = 0;
     state.last_pushed_reasoning_len = 0;
     state.variant = 0;
+    crate::kit::model_speed::note_turn_ended();
     // Issue 2026-08-05 次要项 (b)：last_submitted_text 是"最近一次用户提交"的
     // 回滚锚点，只对运行中的 turn 有效。TurnDone 后本 turn 已结束，不清除会让
     // 旧文本跨 turn 残留——后续到达的 stale TurnInterrupted 会误删不相关气泡。
@@ -209,6 +210,7 @@ pub(super) fn handle_turn_interrupted(
         state.last_pushed_reasoning_len = 0;
         state.variant = 0;
         state.phase = SessionPhase::Idle;
+        crate::kit::model_speed::note_turn_ended();
         super::render::push_view_models(state);
         super::render::push_acp_state(state);
         return;
@@ -229,6 +231,7 @@ pub(super) fn handle_turn_interrupted(
     state.last_pushed_reasoning_len = 0;
     state.variant = 0;
     state.phase = SessionPhase::Idle;
+    crate::kit::model_speed::note_turn_ended();
     super::render::push_view_models(state);
     super::render::push_acp_state(state);
 }
@@ -248,6 +251,7 @@ pub(super) fn handle_turn_suspended(state: &mut BridgeState) {
     state.last_pushed_reasoning_len = 0;
     state.variant = 0;
     state.phase = SessionPhase::Idle;
+    crate::kit::model_speed::note_turn_ended();
     super::render::push_view_models(state);
     super::render::push_acp_state(state);
     // 注意：不调用 drain_input_buffer()——Agent 保持存活，
@@ -281,6 +285,7 @@ pub(super) fn handle_prompt_submitted(state: &mut BridgeState, request_id: &Opti
     // 的 request_id 配对判定基准（主导排序场景，见 handle_turn_interrupted 注释）。
     state.current_request_id = request_id.clone();
     state.pending_cache_usage = None;
+    crate::kit::model_speed::note_prompt_submitted();
     super::render::push_acp_state(state);
 }
 
@@ -290,6 +295,8 @@ pub(super) fn handle_session_replay_started(state: &mut BridgeState) {
     state.variant = 0;
     state.current_turn.reset();
     state.last_pushed_text_len = 0;
+    // 历史重放不是本轮生成，不能计入速率统计。
+    crate::kit::model_speed::reset();
     state.last_pushed_reasoning_len = 0;
     super::render::push_view_models(state);
     super::render::push_acp_state(state);

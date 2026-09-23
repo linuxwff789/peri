@@ -258,6 +258,9 @@ pub(super) fn decode_stream_update(params: &Value, session_id: &str) -> StreamUp
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
             token_count = Some((input + output) as usize);
+            // 速率统计：真实 output_tokens 覆盖生成中的字符估算值
+            // （只在本分支——agent_id.is_some() 的辅助 usage 已提前 return）。
+            crate::kit::model_speed::note_output_tokens(output);
             let cache_read = meta_obj
                 .and_then(|m| m.get("cacheReadTokens"))
                 .and_then(|v| v.as_u64());

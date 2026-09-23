@@ -67,6 +67,8 @@ pub(super) fn handle_text_chunk(state: &mut BridgeState, tc: &TuiTextChunk) {
         super::render::push_acp_state(state);
         return;
     } else {
+        // 主 agent 正文：计入输出速率（subagent 不计——状态栏读的是主模型）
+        crate::kit::model_speed::note_chunk(&tc.text);
         state
             .current_turn
             .append_text(&tc.text, tc.message_id.as_deref());
@@ -131,6 +133,9 @@ pub(super) fn handle_reasoning_chunk(state: &mut BridgeState, rc: &TuiReasoningC
         super::render::push_acp_state(state);
         return;
     } else {
+        // 主 agent 推理：也计入——thinking 与正文同一速率生成，只算正文会让
+        // thinking 阶段读数一直是 0。
+        crate::kit::model_speed::note_chunk(&rc.text);
         state
             .current_turn
             .append_reasoning(&rc.text, rc.message_id.as_deref());

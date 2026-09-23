@@ -32,6 +32,7 @@ pub mod list_nav;
 pub mod markdown;
 pub mod mention_popup;
 pub mod message_area;
+pub mod model_speed;
 pub mod mouse_router;
 pub mod panel_mouse;
 pub mod panel_overlay;
