@@ -71,11 +71,19 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - name: Install Android SDK/NDK
-              uses: android-actions/setup-android@v3
-
+            # 不用 android-actions/setup-android：它内部会跑 `sdkmanager tools`，
+            # 而现代 SDK 仓库已移除 `tools` 包 —— 实测报
+            # `Warning: Failed to find package 'tools'` 然后 exit 1。
+            # 直接下 NDK 更稳，也不依赖 sdkmanager 的仓库状态。
             - name: Install Android NDK
-              run: sdkmanager "ndk;27.2.12479018"
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  NDK_VERSION="r27c"
+                  curl -fsSL -o "$RUNNER_TEMP/ndk.zip" \
+                    "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+                  unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP"
+                  echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
@@ -166,8 +174,11 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
-                  TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+                  TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+                  [ -x "$TOOLCHAIN/bin/aarch64-linux-android24-clang" ] || {
+                    echo "找不到 NDK clang: $TOOLCHAIN/bin/aarch64-linux-android24-clang" >&2
+                    exit 1
+                  }
                   echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
                   echo "CC_aarch64_linux_android=$TOOLCHAIN/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
                   echo "AR_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ar" >> "$GITHUB_ENV"

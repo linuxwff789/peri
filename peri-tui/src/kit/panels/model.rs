@@ -393,6 +393,10 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     };
     let align = right_align_col(panel_w);
 
+    // effort 选择行（仅列表视图；档位编辑器已有 Effort 字段）。
+    // 必须在下面的 `rows` 把 `current_effort` move 走之前构造。
+    let effort_row = list::effort_line(&current_effort, &theme);
+
     let rows: Vec<(&str, String)> = vec![
         ("Provider", provider_label),
         ("Model", model_label),
@@ -455,9 +459,6 @@ pub fn ModelPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
     } else {
         Line::from(i18n::tr("panel-model-nav-hint")).fg(theme.semantic.text.dim)
     };
-
-    // ── pi 式列表：effort 选择行（仅列表视图；档位编辑器已有 Effort 字段）──
-    let effort_row = list::effort_line(&current_effort, &theme);
 
     // ── pi 式列表：过滤 + 渲染（选择下标在过滤后列表上；越界时钳制）──
     let choices = cfg_snapshot
