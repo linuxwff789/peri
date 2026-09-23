@@ -421,7 +421,9 @@ pub(crate) async fn run_prompt(
         auto_classifier_factory,
         subagent_llm_factory,
     } = models::build_model_factories(
-        &provider_snapshot,
+        // 传**共享句柄**而不是快照：模型要能在运行中切换（见 models.rs 的
+        // SharedProvider 注释）。`provider_snapshot` 仍用于本轮遥测/上下文窗口。
+        provider,
         &peri_config_snapshot,
         &pool,
         &retry_events,
