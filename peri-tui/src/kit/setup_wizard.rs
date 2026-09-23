@@ -202,12 +202,26 @@ async fn finish_setup(draft: SetupWizardState) {
         report_setup_failure("setup-activation-failed");
         return;
     };
+    // 探测各 provider 的 `/models`：表单已不再让用户填模型名，所以
+    // `models.*` 四档留空 → 这里拉到真实模型后由 `apply_models_to_config`
+    // 写 `extra["models_list"]` 并用第一个模型填空白档位，否则
+    // `from_config` 解析不出模型、ACP 会拒。
+    // 必须在 `*handle.write() = config` 之后调（探测从 config 句柄读）。
+    let probe_ids: Vec<String> = config
+        .config
+        .providers
+        .iter()
+        .map(|p| p.id.clone())
+        .collect();
     *handle.write() = config;
     {
         let atom = SETUP_WIZARD.state();
         let mut current = atom.write();
         current.save_in_progress = false;
         current.submit_error = None;
+    }
+    for provider_id in probe_ids {
+        crate::kit::panels::login::probe::spawn_probe_for_saved(&provider_id);
     }
     if !from_command {
         *atoms::SETUP_COMPLETED.state().write() = true;

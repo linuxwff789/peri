@@ -153,7 +153,10 @@ impl MigratedProvider {
             original_provider_id: None,
             base_url: pt.default_base_url().to_string(),
             api_key: String::new(),
-            aliases: pt.default_model_ids().map(|s| s.to_string()),
+            // 默认留空：自定义端点的模型名由保存后的 `/models` 探测决定，
+            // 填类型默认值（如 claude-*）在用户自己的端点上通常不存在。
+            // 只有 PeriFreeService 这类已知网关才预填（见 `peri_free_provider`）。
+            aliases: Default::default(),
             selected: true,
         }
     }
@@ -482,6 +485,9 @@ pub fn build_wizard_config(state: &SetupWizardState) -> crate::config::PeriConfi
             // 向导此前直接存原始输入 → 用户填 `https://api.x.com` 时请求会打到
             // `https://api.x.com/chat/completions`（缺 /v1）而 404。
             base_url: crate::kit::panels::login::probe::normalize_base_url(&mp.base_url),
+            // 四档模型名不再由用户填写（表单已移除 Fable/Opus/Sonnet/Haiku 字段）：
+            // CustomApi 下 aliases 为空 → 保存后由 `/models` 探测用真实模型占位；
+            // PeriFreeService 下 aliases 是硬编码的已知模型，直接写入（不靠探测）。
             models: crate::config::ProviderModels {
                 fable: mp.aliases[0].clone(),
                 opus: mp.aliases[1].clone(),
@@ -568,7 +574,16 @@ fn merge_setup(
             existing.provider_type = new_provider.provider_type.clone();
             existing.api_key = new_provider.api_key.clone();
             existing.base_url = new_provider.base_url.clone();
-            existing.models = new_provider.models.clone();
+            // 模型四档不再由向导填写：向导带空模型时保留已有值，
+            // 否则重开向导编辑端点会把探测到的模型清掉。
+            let wm = &new_provider.models;
+            let wizard_has_models = !(wm.fable.is_empty()
+                && wm.opus.is_empty()
+                && wm.sonnet.is_empty()
+                && wm.haiku.is_empty());
+            if wizard_has_models {
+                existing.models = wm.clone();
+            }
         } else {
             merged.config.providers.push(new_provider.clone());
         }
