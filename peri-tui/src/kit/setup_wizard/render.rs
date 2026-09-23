@@ -313,27 +313,8 @@ fn render_browse(
             ]));
         }
 
-        // 显示模型别名（与上方 Provider 信息间空一行）
-        lines.push(Line::from(""));
-        let alias_labels = [
-            i18n::tr("setup-field-fable"),
-            i18n::tr("setup-field-opus"),
-            i18n::tr("setup-field-sonnet"),
-            i18n::tr("setup-field-haiku"),
-        ];
-        for (ai, label) in alias_labels.iter().enumerate() {
-            let model_text = if mp.aliases[ai].len() > 40 {
-                format!("{}...", &mp.aliases[ai][..37])
-            } else {
-                mp.aliases[ai].clone()
-            };
-            lines.push(Line::from(vec![
-                Span::styled("     ", Style::default()),
-                Span::styled(format!("{} → ", label), Style::default().fg(dim)),
-                Span::styled(model_text, Style::default().fg(accent)),
-            ]));
-        }
-
+        // 模型名不再在这里列出：4 档字段已从表单移除，模型由探测
+        // `/models` 落地到 `extra["models_list"]`，在 `/model` 面板里选。
         lines.push(Line::from(""));
     }
 
@@ -533,34 +514,6 @@ fn render_edit(
         focus_color,
     ));
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        i18n::tr("setup-model-label"),
-        Style::default().fg(dim).add_modifier(Modifier::BOLD),
-    )));
-
-    // Fable / Opus / Sonnet / Haiku 模型名
-    for (i, field) in [
-        FormField::FableModel,
-        FormField::OpusModel,
-        FormField::SonnetModel,
-        FormField::HaikuModel,
-    ]
-    .iter()
-    .enumerate()
-    {
-        lines.push(render_editable_line(
-            i18n::tr(field.i18n_key()),
-            mp.aliases[i].clone(),
-            state.form_focus == *field,
-            state.edit_cursor_pos,
-            cursor_color,
-            dim,
-            text_color,
-            focus_color,
-        ));
-    }
-
     // Confirm
     let cf_focused = state.form_focus == FormField::Confirm;
     let cf_prefix = if cf_focused { "❯ " } else { "  " };
@@ -620,7 +573,6 @@ pub(super) fn render_done_step(
         }
         let provider_id = mp.provider_id.clone();
         let api_key_display = mask_api_key(&mp.api_key);
-        let aliases = mp.aliases.clone();
         let type_label = i18n::tr(mp.provider_type.label());
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
@@ -636,19 +588,8 @@ pub(super) fn render_done_step(
             Span::styled(api_key_display, Style::default().fg(text_color)),
         ]));
         lines.push(Line::from(""));
-        let alias_labels = [
-            i18n::tr("setup-field-fable"),
-            i18n::tr("setup-field-opus"),
-            i18n::tr("setup-field-sonnet"),
-            i18n::tr("setup-field-haiku"),
-        ];
-        for (i, label) in alias_labels.iter().enumerate() {
-            let model = aliases[i].clone();
-            lines.push(Line::from(vec![
-                Span::styled(format!("   {:>6} → ", label), Style::default().fg(dim)),
-                Span::styled(model, Style::default().fg(accent)),
-            ]));
-        }
+        // 模型不再分四档列出：探测 `/models` 后会写入 `extra["models_list"]`，
+        // 实际使用哪个模型在 `/model` 面板里选。
     }
 
     if let Some(error) = &state.submit_error {

@@ -603,6 +603,28 @@ fn messages_endpoint_preserves_base_path_and_rejects_userinfo() {
     );
 }
 
+/// base 已带 `/v1` 时不得再补一层。
+///
+/// TUI 的 `normalize_base_url` 历史上对**所有** provider 一律补 `/v1`，
+/// 所以存下来的 Anthropic 配置里两种形态都有；`.../v1` 再补一次就会变成
+/// `.../v1/v1/messages` → 400/404。
+#[test]
+fn messages_endpoint_does_not_double_version_an_already_versioned_base() {
+    for (base_url, expected) in [
+        ("https://api.anthropic.com/v1", "https://api.anthropic.com/v1/messages"),
+        ("https://api.anthropic.com/v1/", "https://api.anthropic.com/v1/messages"),
+        ("https://proxy.example.test/custom/v1", "https://proxy.example.test/custom/v1/messages"),
+        ("https://api.anthropic.com", "https://api.anthropic.com/v1/messages"),
+        ("https://api.anthropic.com/", "https://api.anthropic.com/v1/messages"),
+    ] {
+        let endpoint = super::request::messages_endpoint(
+            &Url::parse(base_url).expect("valid URL"),
+        )
+        .expect("messages endpoint");
+        assert_eq!(endpoint.as_str(), expected, "base={base_url}");
+    }
+}
+
 #[tokio::test]
 async fn prepared_body_and_sent_body_share_one_request_builder_without_headers() {
     let transport = Arc::new(FakeTransport::with_response(FakeResponse {

@@ -101,11 +101,23 @@ pub(super) fn messages_endpoint(endpoint: &Url) -> ModelResult<Url> {
     let mut endpoint = endpoint.clone();
     endpoint.set_query(None);
     endpoint.set_fragment(None);
+    // base 里已经带 /v1 时不再补——否则 `.../v1` 会变成 `.../v1/v1/messages`。
+    //
+    // 这个不对称必须容忍：Anthropic 的约定是 base **不含** /v1（默认 base =
+    // `https://api.anthropic.com`），而 OpenAI 的约定是 base **含** /v1。
+    // 用户从面板粘贴端点时两种写法都会出现，且 TUI 的 `normalize_base_url`
+    // 历史上一律补 /v1 —— 存下来的配置里两种形态都有。
+    let already_versioned = endpoint
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .is_some_and(|last| last.eq_ignore_ascii_case("v1"));
     let mut path_segments = endpoint
         .path_segments_mut()
         .map_err(|_| ModelError::protocol(crate::ProtocolErrorKind::InvalidEndpoint))?;
     path_segments.pop_if_empty();
-    path_segments.push("v1");
+    if !already_versioned {
+        path_segments.push("v1");
+    }
     path_segments.push("messages");
     drop(path_segments);
     Ok(endpoint)

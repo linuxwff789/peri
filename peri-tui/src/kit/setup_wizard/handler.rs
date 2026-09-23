@@ -14,10 +14,6 @@ fn get_raw_field_value(state: &SetupWizardState) -> String {
         FormField::ProviderId => mp.provider_id.clone(),
         FormField::BaseUrl => mp.base_url.clone(),
         FormField::ApiKey => mp.api_key.clone(),
-        FormField::FableModel => mp.aliases[0].clone(),
-        FormField::OpusModel => mp.aliases[1].clone(),
-        FormField::SonnetModel => mp.aliases[2].clone(),
-        FormField::HaikuModel => mp.aliases[3].clone(),
         _ => String::new(),
     }
 }
@@ -80,14 +76,15 @@ pub(super) fn wizard_click(
         }
         SetupStep::Form => match state.form_mode {
             FormMode::Browse => {
-                // 布局：空行 + 每 provider 7 行（base_url 非空时 8 行）+ submit 行（无滚动）
-                // 与 render_browse 对齐：provider 行 + (url 行) + 空行 + 4 别名行 + 空行
+                // 布局：空行 + 每 provider 3 行（base_url 非空时 4 行）+ submit 行（无滚动）
+                // 与 render_browse 对齐：provider 行 + (url 行) + 空行
+                //（模型 4 档行已从表单移除，不再计入高度）
                 let mut cur = 1u16;
                 if state.providers.is_empty() {
                     cur += 2; // "no providers" + 空行
                 }
                 for (i, mp) in state.providers.iter().enumerate() {
-                    let item_h = if mp.base_url.is_empty() { 7u16 } else { 8u16 };
+                    let item_h = if mp.base_url.is_empty() { 3u16 } else { 4u16 };
                     if visual >= cur && visual < cur + item_h {
                         state.browse_cursor = i;
                         handle_browse_keys(state, enter);
@@ -106,8 +103,7 @@ pub(super) fn wizard_click(
                 }
             }
             FormMode::Edit => {
-                // 布局：空行（header 1）+ ProviderType..ApiKey 各 1 行；
-                // 空行 + model 标题（header 8）+ FableModel..Confirm 各 1 行
+                // 布局：空行（header 1）+ ProviderType..ApiKey 各 1 行。
                 const FIELDS1: [FormField; 5] = [
                     FormField::ProviderType,
                     FormField::ProviderId,
@@ -127,31 +123,27 @@ pub(super) fn wizard_click(
                         item_count: FIELDS1.len(),
                     },
                 ) {
+                    state.normalize_base_url_field();
                     state.form_focus = FIELDS1[idx];
                     state.edit_cursor_pos = get_raw_field_value(state).chars().count();
                     handle_edit_keys(state, enter);
                     return true;
                 }
-                const FIELDS2: [FormField; 5] = [
-                    FormField::FableModel,
-                    FormField::OpusModel,
-                    FormField::SonnetModel,
-                    FormField::HaikuModel,
-                    FormField::Confirm,
-                ];
+                // Confirm：header 1（空行）+ 5 个字段 = 第 6 行
                 if let Some(idx) = hit_row(
                     mouse.row,
                     area,
                     ListLayout {
-                        header_rows: 8,
+                        header_rows: 6,
                         item_rows: 1,
                         footer_rows: 0,
-                        visible_items: FIELDS2.len() as u16,
+                        visible_items: 1,
                         scroll_start: 0,
-                        item_count: FIELDS2.len(),
+                        item_count: 1,
                     },
                 ) {
-                    state.form_focus = FIELDS2[idx];
+                    state.normalize_base_url_field();
+                    state.form_focus = [FormField::Confirm][idx];
                     state.edit_cursor_pos = get_raw_field_value(state).chars().count();
                     handle_edit_keys(state, enter);
                     return true;
@@ -159,10 +151,11 @@ pub(super) fn wizard_click(
             }
         },
         SetupStep::Done => {
-            // 布局：空行 + 标题 + 空行（header 3）+ 每 provider 8 行 + 空行 + Enter 提示行
+            // 布局：空行 + 标题 + 空行（header 3）+ 每 provider 3 行 + 空行 + Enter 提示行
+            // （模型四档行已移除：provider 行 + key 行 + 空行）
             let selected_count = state.providers.iter().filter(|p| p.selected).count();
             let error_rows = if state.submit_error.is_some() { 2 } else { 0 };
-            let enter_row = (4 + 8 * selected_count + error_rows) as u16;
+            let enter_row = (4 + 3 * selected_count + error_rows) as u16;
             if visual == enter_row {
                 handle_done_keys(state, enter);
                 return true;
@@ -377,10 +370,12 @@ fn handle_edit_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm::e
 
     match key.code {
         Up => {
+            state.normalize_base_url_field();
             state.form_focus = state.form_focus.prev();
             state.edit_cursor_pos = get_raw_field_value(state).chars().count();
         }
         Down => {
+            state.normalize_base_url_field();
             state.form_focus = state.form_focus.next();
             state.edit_cursor_pos = get_raw_field_value(state).chars().count();
         }
@@ -406,14 +401,12 @@ fn handle_edit_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm::e
                     state.connectivity_result = None;
                 }
             } else if state.form_focus == FormField::Confirm {
+                state.normalize_base_url_field();
                 let mp = match state.active_provider_ref() {
                     Some(mp) => mp,
                     None => return,
                 };
-                if !mp.provider_id.trim().is_empty()
-                    && !mp.api_key.trim().is_empty()
-                    && mp.aliases.iter().all(|a| !a.trim().is_empty())
-                {
+                if mp.is_complete() {
                     state.invalidate_connectivity();
                     state.form_mode = FormMode::Browse;
                 }

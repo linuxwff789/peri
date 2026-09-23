@@ -52,17 +52,16 @@ enum LoginPanelMode {
 }
 
 /// 编辑模式下可编辑的字段（布局与 setup_wizard 的 Form Edit 一致：
-/// Type/ID/BaseUrl/ApiKey + Model 分组 + Confirm 确认按钮）
+/// Type/ID/BaseUrl/ApiKey + Confirm 确认按钮）
+///
+/// 模型名不再在这里编辑：4 档字段已从表单移除，模型由探测 `/models` 落地到
+/// `extra["models_list"]`，在 `/model` 面板里选。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoginEditField {
     ProviderType,
     ProviderId,
     BaseUrl,
     ApiKey,
-    FableModel,
-    OpusModel,
-    SonnetModel,
-    HaikuModel,
     Confirm,
 }
 
@@ -72,11 +71,7 @@ impl LoginEditField {
             Self::ProviderType => Self::ProviderId,
             Self::ProviderId => Self::BaseUrl,
             Self::BaseUrl => Self::ApiKey,
-            Self::ApiKey => Self::FableModel,
-            Self::FableModel => Self::OpusModel,
-            Self::OpusModel => Self::SonnetModel,
-            Self::SonnetModel => Self::HaikuModel,
-            Self::HaikuModel => Self::Confirm,
+            Self::ApiKey => Self::Confirm,
             Self::Confirm => Self::ProviderType,
         }
     }
@@ -87,11 +82,7 @@ impl LoginEditField {
             Self::ProviderId => Self::ProviderType,
             Self::BaseUrl => Self::ProviderId,
             Self::ApiKey => Self::BaseUrl,
-            Self::FableModel => Self::ApiKey,
-            Self::OpusModel => Self::FableModel,
-            Self::SonnetModel => Self::OpusModel,
-            Self::HaikuModel => Self::SonnetModel,
-            Self::Confirm => Self::HaikuModel,
+            Self::Confirm => Self::ApiKey,
         }
     }
 
@@ -101,10 +92,6 @@ impl LoginEditField {
             Self::ProviderId => "login-field-name",
             Self::ApiKey => "login-field-api-key",
             Self::BaseUrl => "login-field-base-url",
-            Self::FableModel => "login-field-fable-model",
-            Self::OpusModel => "login-field-opus-model",
-            Self::SonnetModel => "login-field-sonnet-model",
-            Self::HaikuModel => "login-field-haiku-model",
             Self::Confirm => "login-confirm",
         }
     }
@@ -119,10 +106,6 @@ struct LoginEditState {
     provider_id: String,
     api_key: String,
     base_url: String,
-    fable_model: String,
-    opus_model: String,
-    sonnet_model: String,
-    haiku_model: String,
 }
 
 impl LoginEditState {
@@ -133,10 +116,6 @@ impl LoginEditState {
             provider_id: config.id.clone(),
             api_key: config.api_key.clone(),
             base_url: config.base_url.clone(),
-            fable_model: config.models.fable.clone(),
-            opus_model: config.models.opus.clone(),
-            sonnet_model: config.models.sonnet.clone(),
-            haiku_model: config.models.haiku.clone(),
         }
     }
 
@@ -147,10 +126,6 @@ impl LoginEditState {
             provider_id: String::new(),
             api_key: String::new(),
             base_url: String::new(),
-            fable_model: String::new(),
-            opus_model: String::new(),
-            sonnet_model: String::new(),
-            haiku_model: String::new(),
         }
     }
 
@@ -160,10 +135,6 @@ impl LoginEditState {
             LoginEditField::ProviderId => &self.provider_id,
             LoginEditField::ApiKey => &self.api_key,
             LoginEditField::BaseUrl => &self.base_url,
-            LoginEditField::FableModel => &self.fable_model,
-            LoginEditField::OpusModel => &self.opus_model,
-            LoginEditField::SonnetModel => &self.sonnet_model,
-            LoginEditField::HaikuModel => &self.haiku_model,
             LoginEditField::Confirm => "",
         }
     }
@@ -174,10 +145,6 @@ impl LoginEditState {
             LoginEditField::ProviderId => &mut self.provider_id,
             LoginEditField::ApiKey => &mut self.api_key,
             LoginEditField::BaseUrl => &mut self.base_url,
-            LoginEditField::FableModel => &mut self.fable_model,
-            LoginEditField::OpusModel => &mut self.opus_model,
-            LoginEditField::SonnetModel => &mut self.sonnet_model,
-            LoginEditField::HaikuModel => &mut self.haiku_model,
             LoginEditField::Confirm => unreachable!("Confirm is a button, not a text field"),
         }
     }
@@ -631,24 +598,9 @@ pub fn LoginPanel(mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
                     )]));
                 }
 
-                // ── Fable / Opus / Sonnet / Haiku 模型名
-                for field in &[
-                    LoginEditField::FableModel,
-                    LoginEditField::OpusModel,
-                    LoginEditField::SonnetModel,
-                    LoginEditField::HaikuModel,
-                ] {
-                    lines.push(render_login_edit_line(
-                        i18n::tr(field.i18n_key()),
-                        es.field_value(*field).to_string(),
-                        *field == ef,
-                        ec,
-                        cursor_color,
-                        dim,
-                        text_color,
-                        focus_color,
-                    ));
-                }
+                // ── Fable / Opus / Sonnet / Haiku 模型名已从表单移除：
+                // 模型由探测 `/models` 落地到 `extra["models_list"]`，
+                // 在 `/model` 面板里选。此处只保留探测状态提示。
 
                 // ── 确认按钮（参考 setup_wizard 的 Confirm 行：focus 时 ❯ + 强调色）
                 let cf_focused = ef == LoginEditField::Confirm;

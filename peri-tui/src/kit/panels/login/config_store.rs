@@ -4,7 +4,7 @@ use crate::kit::atoms::{
     ProviderSummary,
 };
 use fluent_bundle::FluentValue;
-use peri_acp::provider::config::{ProviderConfig, ProviderModels};
+use peri_acp::provider::config::ProviderConfig;
 use std::time::{Duration, Instant};
 
 use super::LoginEditState;
@@ -68,12 +68,8 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
                 id: es.provider_id.clone(),
                 api_key: api_key.clone(),
                 base_url: base_url.clone(),
-                models: ProviderModels {
-                    fable: es.fable_model.clone(),
-                    opus: es.opus_model.clone(),
-                    sonnet: es.sonnet_model.clone(),
-                    haiku: es.haiku_model.clone(),
-                },
+                // 四档留空：探测 `/models` 后由 `apply_models_to_config`
+                // 用端点真实模型占位（旧的类型默认值在自定义端点上常不存在）。
                 ..Default::default()
             };
             cfg.config.providers.push(new_config);
@@ -93,10 +89,9 @@ pub(super) fn save_login_edit(es: &LoginEditState) -> bool {
                 provider.id = es.provider_id.clone();
                 provider.api_key = api_key.clone();
                 provider.base_url = base_url.clone();
-                provider.models.fable = es.fable_model.clone();
-                provider.models.opus = es.opus_model.clone();
-                provider.models.sonnet = es.sonnet_model.clone();
-                provider.models.haiku = es.haiku_model.clone();
+                // 模型四档不再由表单编辑（已从 UI 移除）：`models.*` 保持原值，
+                // 由探测 `/models` 写入 `extra["models_list"]` 并由
+                // `apply_models_to_config` 填补空档位。
 
                 // 如果 id 变化且该 provider 是当前激活的，同步更新 active profile 的 provider
                 let active_profile_provider = cfg

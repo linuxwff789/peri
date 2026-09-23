@@ -163,10 +163,12 @@ impl MigratedProvider {
     }
 
     /// 字段是否完整
+    ///
+    /// 模型名不再由用户填写（4 档字段已从表单移除），改由探测 `/models` 落地
+    /// 到 `extra["models_list"]` + 空档位占位（见 `apply_models_to_config`），
+    /// 因此这里只校验端点与凭据。
     pub fn is_complete(&self) -> bool {
-        !self.provider_id.trim().is_empty()
-            && !self.api_key.trim().is_empty()
-            && self.aliases.iter().all(|a| !a.trim().is_empty())
+        !self.provider_id.trim().is_empty() && !self.api_key.trim().is_empty()
     }
 
     /// 切换 Provider 类型后刷新默认值（保留 api_key）
@@ -210,10 +212,6 @@ pub enum FormField {
     BaseUrl,
     TestConnectivity,
     ApiKey,
-    FableModel,
-    OpusModel,
-    SonnetModel,
-    HaikuModel,
     Confirm,
 }
 
@@ -224,11 +222,7 @@ impl FormField {
             Self::ProviderId => Self::BaseUrl,
             Self::BaseUrl => Self::TestConnectivity,
             Self::TestConnectivity => Self::ApiKey,
-            Self::ApiKey => Self::FableModel,
-            Self::FableModel => Self::OpusModel,
-            Self::OpusModel => Self::SonnetModel,
-            Self::SonnetModel => Self::HaikuModel,
-            Self::HaikuModel => Self::Confirm,
+            Self::ApiKey => Self::Confirm,
             Self::Confirm => Self::ProviderType,
         }
     }
@@ -240,25 +234,12 @@ impl FormField {
             Self::BaseUrl => Self::ProviderId,
             Self::TestConnectivity => Self::BaseUrl,
             Self::ApiKey => Self::TestConnectivity,
-            Self::FableModel => Self::ApiKey,
-            Self::OpusModel => Self::FableModel,
-            Self::SonnetModel => Self::OpusModel,
-            Self::HaikuModel => Self::SonnetModel,
-            Self::Confirm => Self::HaikuModel,
+            Self::Confirm => Self::ApiKey,
         }
     }
 
     pub fn is_text_input(&self) -> bool {
-        matches!(
-            self,
-            Self::ProviderId
-                | Self::BaseUrl
-                | Self::ApiKey
-                | Self::FableModel
-                | Self::OpusModel
-                | Self::SonnetModel
-                | Self::HaikuModel
-        )
+        matches!(self, Self::ProviderId | Self::BaseUrl | Self::ApiKey)
     }
 
     pub fn i18n_key(&self) -> &'static str {
@@ -268,10 +249,6 @@ impl FormField {
             Self::BaseUrl => "setup-field-base-url",
             Self::ApiKey => "setup-field-api-key",
             Self::TestConnectivity => "setup-field-test-connectivity",
-            Self::FableModel => "setup-field-fable",
-            Self::OpusModel => "setup-field-opus",
-            Self::SonnetModel => "setup-field-sonnet",
-            Self::HaikuModel => "setup-field-haiku",
             Self::Confirm => "setup-confirm",
         }
     }
@@ -346,10 +323,6 @@ impl SetupWizardState {
             FormField::ProviderId => mp.provider_id.clone(),
             FormField::BaseUrl => mp.base_url.clone(),
             FormField::ApiKey => mp.api_key.clone(),
-            FormField::FableModel => mp.aliases[0].clone(),
-            FormField::OpusModel => mp.aliases[1].clone(),
-            FormField::SonnetModel => mp.aliases[2].clone(),
-            FormField::HaikuModel => mp.aliases[3].clone(),
             _ => return None,
         })
     }
@@ -374,11 +347,22 @@ impl SetupWizardState {
                 FormField::ProviderId => mp.provider_id = value,
                 FormField::BaseUrl => mp.base_url = value,
                 FormField::ApiKey => mp.api_key = value,
-                FormField::FableModel => mp.aliases[0] = value,
-                FormField::OpusModel => mp.aliases[1] = value,
-                FormField::SonnetModel => mp.aliases[2] = value,
-                FormField::HaikuModel => mp.aliases[3] = value,
                 _ => {}
+            }
+        }
+    }
+
+    /// 离开 BaseUrl 字段时归一化（补 `/v1` / 剥 `/chat/completions`）。
+    ///
+    /// **不能在 `set_active_field_value` 里做**——那个函数每个按键都会调用，
+    /// 边打字边归一化会把输入搅乱（如刚打到 `https://host` 就被追加 `/v1`）。
+    /// 只在焦点离开该字段时做一次，用户能看到实际落盘的值。
+    pub fn normalize_base_url_field(&mut self) {
+        if let Some(mp) = self.active_provider_mut() {
+            let normalized =
+                crate::kit::panels::login::probe::normalize_base_url(&mp.base_url);
+            if normalized != mp.base_url {
+                mp.base_url = normalized;
             }
         }
     }
@@ -493,7 +477,11 @@ pub fn build_wizard_config(state: &SetupWizardState) -> crate::config::PeriConfi
             id: mp.provider_id.clone(),
             provider_type: mp.provider_type.type_str().to_string(),
             api_key: mp.api_key.clone(),
-            base_url: mp.base_url.clone(),
+            // 与 /login 面板同一套归一化：只有 host 时补 `/v1`，粘贴完整
+            // 地址（`/chat/completions`、`/v1/messages` 等）时剥回 base。
+            // 向导此前直接存原始输入 → 用户填 `https://api.x.com` 时请求会打到
+            // `https://api.x.com/chat/completions`（缺 /v1）而 404。
+            base_url: crate::kit::panels::login::probe::normalize_base_url(&mp.base_url),
             models: crate::config::ProviderModels {
                 fable: mp.aliases[0].clone(),
                 opus: mp.aliases[1].clone(),
