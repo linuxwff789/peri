@@ -303,6 +303,25 @@ fn handle_done_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm::e
     }
 }
 
+/// 生成不与现有端点冲突的默认 ID（`anthropic` → `anthropic-2` → …）。
+///
+/// 不加这一步的话，Ctrl+N 新建的端点与第一个同名，落盘时
+/// `providers` 里出现重复 id，`find(|p| p.id == …)` 只会命中第一个。
+fn unique_provider_id(state: &SetupWizardState, base: &str) -> String {
+    let taken = |id: &str| state.providers.iter().any(|p| p.provider_id == id);
+    if !taken(base) {
+        return base.to_string();
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{base}-{n}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 fn handle_browse_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm::event::KeyEvent) {
     use KeyCode::*;
     let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -313,7 +332,9 @@ fn handle_browse_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm:
         Char('n') if is_ctrl => {
             state.submit_error = None;
             state.invalidate_connectivity();
-            state.providers.push(MigratedProvider::new(ProviderType::Anthropic));
+            let mut new_provider = MigratedProvider::new(ProviderType::Anthropic);
+            new_provider.provider_id = unique_provider_id(state, &new_provider.provider_id);
+            state.providers.push(new_provider);
             state.active_provider = state.providers.len() - 1;
             state.browse_cursor = state.active_provider;
             state.form_mode = FormMode::Edit;
