@@ -345,6 +345,8 @@ fn render_browse(
         vec![
             ("Enter".to_string(), i18n::tr("setup-key-edit-submit")),
             ("Space".to_string(), i18n::tr("setup-key-check")),
+            ("Ctrl+N".to_string(), i18n::tr("setup-key-new")),
+            ("Del".to_string(), i18n::tr("setup-key-delete")),
             ("↑/↓".to_string(), i18n::tr("setup-key-select")),
             ("Esc".to_string(), i18n::tr("setup-key-back")),
         ],

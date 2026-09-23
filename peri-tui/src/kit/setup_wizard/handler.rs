@@ -305,8 +305,33 @@ fn handle_done_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm::e
 
 fn handle_browse_keys(state: &mut SetupWizardState, key: ratatui_kit::crossterm::event::KeyEvent) {
     use KeyCode::*;
+    let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let max_pos = state.providers.len(); // submit button position
     match key.code {
+        // Ctrl+N：新增一个端点。与 /login 面板同一快捷键。
+        // 光标落在新条目上并直接进 Edit，省一步 Down。
+        Char('n') if is_ctrl => {
+            state.submit_error = None;
+            state.invalidate_connectivity();
+            state.providers.push(MigratedProvider::new(ProviderType::Anthropic));
+            state.active_provider = state.providers.len() - 1;
+            state.browse_cursor = state.active_provider;
+            state.form_mode = FormMode::Edit;
+            state.form_focus = FormField::ProviderType;
+            state.edit_cursor_pos = 0;
+        }
+        // Delete：删除光标所在端点。向导此时只在内存里改草稿（Submit 才落盘），
+        // 所以不需要 /login 那样的二次确认。
+        Delete if state.browse_cursor < state.providers.len() => {
+            state.submit_error = None;
+            state.invalidate_connectivity();
+            state.providers.remove(state.browse_cursor);
+            // 光标钳制到最后一个端点；列表空时落到 Submit 行
+            state.browse_cursor = state.browse_cursor.min(state.providers.len());
+            if state.active_provider >= state.providers.len() {
+                state.active_provider = state.providers.len().saturating_sub(1);
+            }
+        }
         Up => {
             state.submit_error = None;
             if state.browse_cursor > 0 {
