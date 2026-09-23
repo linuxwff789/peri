@@ -183,6 +183,29 @@ jobs:
                   echo "CC_aarch64_linux_android=$TOOLCHAIN/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
                   echo "AR_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ar" >> "$GITHUB_ENV"
 
+            # tikv-jemalloc-sys 的 build script 会发 `cargo:rustc-link-lib=gcc`，
+            # 而 NDK **不提供 libgcc.a**（只有 libclang_rt.builtins-aarch64-android.a）
+            # → 最终链接报 `ld.lld: error: unable to find library -lgcc`。
+            # 把 clang builtins 归档软链成 libgcc.a 并加进 -L，保留 jemalloc。
+            - name: Provide libgcc shim for Android linker
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+                  BUILTINS=$(find "$TOOLCHAIN/lib/clang" \
+                    -name 'libclang_rt.builtins-aarch64-android.a' -print -quit)
+                  if [ -z "$BUILTINS" ]; then
+                    echo "找不到 clang builtins 归档，实际内容：" >&2
+                    find "$TOOLCHAIN/lib/clang" -name 'libclang_rt.builtins*' >&2 || true
+                    exit 1
+                  fi
+                  echo "builtins: $BUILTINS"
+                  LIBDIR="$RUNNER_TEMP/android-libgcc"
+                  mkdir -p "$LIBDIR"
+                  ln -sf "$BUILTINS" "$LIBDIR/libgcc.a"
+                  ls -l "$LIBDIR"
+                  echo "RUSTFLAGS=-L $LIBDIR" >> "$GITHUB_ENV"
+
             - name: Build native Termux binary
               run: |
                   cargo --config "$RUNNER_TEMP/android-cargo-config.toml" \
