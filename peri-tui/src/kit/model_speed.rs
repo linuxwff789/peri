@@ -31,8 +31,11 @@ pub struct SpeedTracker {
     est_tokens: f64,
     /// 上一轮的真实 output_tokens（来自 usage_update；None 表示未拿到）。
     last_output_tokens: Option<u64>,
-    /// 上一轮 首个 token → 结束 的毫秒数。
-    last_generation_ms: Option<u64>,
+    /// 上一轮 首个 token → 结束 的秒数。
+    ///
+    /// 用 f64 秒而不是整数毫秒：极快的响应（或测试）里 `as_millis()` 会
+    /// 四舍五入到 0，让速率算不出来。
+    last_generation_secs: Option<f64>,
     /// 上一轮 TTFT（prompt 提交 → 首个 token）。
     last_ttft_ms: Option<u64>,
     /// prompt 提交时刻（TTFT 起点）。
@@ -46,7 +49,7 @@ impl Default for SpeedTracker {
             first_token_at: None,
             est_tokens: 0.0,
             last_output_tokens: None,
-            last_generation_ms: None,
+            last_generation_secs: None,
             last_ttft_ms: None,
             prompt_at: None,
         }
@@ -78,6 +81,9 @@ fn estimate_tokens(text: &str) -> f64 {
 }
 
 /// prompt 提交：重置本轮状态并记下 TTFT 起点。
+///
+/// 同时清掉上一轮的冻结读数——否则新一轮开始到首个 token 到达之间，
+/// 状态栏会短暂显示上一轮的 tok/s。
 pub fn note_prompt_submitted() {
     let mut guard = TRACKER.lock();
     let now = Instant::now();
@@ -87,6 +93,9 @@ pub fn note_prompt_submitted() {
             t.first_token_at = None;
             t.est_tokens = 0.0;
             t.prompt_at = Some(now);
+            t.last_output_tokens = None;
+            t.last_generation_secs = None;
+            t.last_ttft_ms = None;
         }
         None => {
             *guard = Some(SpeedTracker {
@@ -132,7 +141,7 @@ pub fn note_turn_ended() {
     }
     let now = Instant::now();
     if let Some(first) = tracker.first_token_at {
-        tracker.last_generation_ms = Some(now.duration_since(first).as_millis() as u64);
+        tracker.last_generation_secs = Some(now.duration_since(first).as_secs_f64());
         if let Some(prompt) = tracker.prompt_at {
             tracker.last_ttft_ms = Some(first.duration_since(prompt).as_millis() as u64);
         }
@@ -151,32 +160,39 @@ pub fn snapshot() -> Option<ModelSpeed> {
     let tracker = guard.as_ref()?;
 
     if tracker.active {
-        // 生成中：估算速率 = 已生成 token / 首个 token 至今
-        let elapsed_ms = tracker
+        // 生成中：估算速率 = 已生成 token / 首个 token 至今。
+        // elapsed 为 0（首个 token 刚到）时记 0 而不是返回 None——
+        // 返回 None 会让状态栏在响应很快时整段不显示。
+        let elapsed_secs = tracker
             .first_token_at
-            .map(|t| t.elapsed().as_millis() as f64)?;
-        if elapsed_ms <= 0.0 {
-            return None;
-        }
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
+        let tps = if elapsed_secs > 0.0 {
+            tracker.est_tokens / elapsed_secs
+        } else {
+            0.0
+        };
         return Some(ModelSpeed {
-            tps: tracker.est_tokens / elapsed_ms * 1000.0,
+            tps,
             approx: true,
             output_tokens: tracker.est_tokens as u64,
             live: true,
         });
     }
 
-    // 已结束：优先用真实 output_tokens，缺失时退回估算值
-    let gen_ms = tracker.last_generation_ms? as f64;
-    if gen_ms <= 0.0 {
-        return None;
-    }
+    // 已结束：优先用真实 output_tokens，缺失时退回估算值。
+    // 没跑过一轮（没有 last_generation_secs）才返回 None。
+    let gen_secs = tracker.last_generation_secs?;
     let (tokens, approx) = match tracker.last_output_tokens {
         Some(real) => (real as f64, false),
         None => (tracker.est_tokens, true),
     };
     Some(ModelSpeed {
-        tps: tokens / gen_ms * 1000.0,
+        tps: if gen_secs > 0.0 {
+            tokens / gen_secs
+        } else {
+            0.0
+        },
         approx,
         output_tokens: tokens as u64,
         live: false,
